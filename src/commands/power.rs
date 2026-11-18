@@ -29,6 +29,7 @@ pub enum Power {
 }
 
 impl Power {
+    pub const DOCK_MENU: [Self; 3] = [Self::ShutDown, Self::Restart, Self::Sleep];
     pub const ALL: [Power; 7] = [
         Power::Lock,
         Power::Sleep,
@@ -113,9 +114,7 @@ pub fn run(power: Power) -> Result<(), String> {
         match power {
             Power::Lock => LockWorkStation().map_err(error),
             Power::Sleep | Power::Hibernate => {
-                if power == Power::Hibernate {
-                    enable_shutdown_privilege()?;
-                }
+                enable_shutdown_privilege()?;
                 if SetSuspendState(power == Power::Hibernate, false, false) {
                     Ok(())
                 } else {
@@ -142,7 +141,7 @@ unsafe fn exit(flags: EXIT_WINDOWS_FLAGS) -> Result<(), String> {
     }
 }
 
-/// Restart, shut down and hibernate need the shutdown privilege, which
+/// Restart, shut down, sleep and hibernate need the shutdown privilege, which
 /// processes have but must turn on.
 unsafe fn enable_shutdown_privilege() -> Result<(), String> {
     unsafe {
@@ -168,6 +167,12 @@ unsafe fn enable_shutdown_privilege() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dock_power_menu_keeps_confirmation_for_shutdown_and_restart() {
+        assert_eq!(Power::DOCK_MENU.map(Power::title), ["Shut down", "Restart", "Sleep"]);
+        assert_eq!(Power::DOCK_MENU.map(Power::needs_confirmation), [true, true, false]);
+    }
 
     #[test]
     fn hibernate_requires_s4_and_a_hibernation_file() {

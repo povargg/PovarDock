@@ -1,11 +1,13 @@
 //! Opens apps and URLs and runs commands through the Windows shell.
 
 use windows::Win32::Foundation::{E_FAIL, ERROR_CANCELLED};
-use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree, CoUninitialize};
+use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::System::SystemInformation::GetWindowsDirectoryW;
 use windows::Win32::UI::Shell::Common::ITEMIDLIST;
 use windows::Win32::UI::Shell::*;
-use windows::Win32::UI::WindowsAndMessaging::{IDYES, MB_ICONINFORMATION, MB_YESNO, MessageBoxW, SW_SHOWNORMAL};
+use windows::Win32::UI::WindowsAndMessaging::{
+    FindWindowW, IsIconic, SW_RESTORE, SW_SHOWNORMAL, SetForegroundWindow, ShowWindow,
+};
 use windows::core::{HSTRING, PCWSTR, Result, w};
 
 /// Uses `AppsFolder` to open both desktop and Microsoft Store apps.
@@ -39,6 +41,15 @@ pub fn shell(command: &str, admin: bool) -> Result<()> {
     execute(&system_tool(r"System32\cmd.exe"), Some(&format!("/k {command}")), admin)
 }
 
+pub fn terminal(command: &str) -> Result<()> {
+    // /S removes the enclosing quotes, leaving the user's quoted arguments intact.
+    execute(
+        &system_tool(r"System32\cmd.exe"),
+        Some(&format!("/d /s /k \"{command}\"")),
+        false,
+    )
+}
+
 pub fn notepad(path: &str) -> Result<()> {
     execute(
         &system_tool(r"System32\notepad.exe"),
@@ -69,52 +80,31 @@ pub fn reveal(path: &str) -> Result<()> {
     )
 }
 
-/// Starts `wisp-settings.exe` from the folder that contains `wisp.exe`.
-/// Offers the release download if the settings app is not there.
+/// Open Settings in a separate process from the same executable.
 pub fn settings(welcome: bool) -> Result<()> {
-    let exe = std::env::current_exe().map_err(|e| windows::core::Error::new(E_FAIL, e.to_string()))?;
-    let settings = exe.with_file_name("wisp-settings.exe");
-    if !settings.is_file() {
-        // One dialog at a time, however often Settings is chosen.
-        static ASKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if ASKING.swap(true, std::sync::atomic::Ordering::AcqRel) {
+    let settings_title = HSTRING::from(crate::channel::SETTINGS_NAME);
+    let welcome_title = HSTRING::from(crate::channel::WELCOME_NAME);
+    for title in [PCWSTR(settings_title.as_ptr()), PCWSTR(welcome_title.as_ptr())] {
+        if let Ok(window) = unsafe { FindWindowW(None, title) } {
+            unsafe {
+                if IsIconic(window).as_bool() {
+                    let _ = ShowWindow(window, SW_RESTORE);
+                }
+                let _ = SetForegroundWindow(window);
+            }
             return Ok(());
         }
-        // Keep onboarding optional and avoid a modal loop while the launcher is borrowed.
-        std::thread::spawn(|| {
-            let com_initialized = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok() };
-            let answer = unsafe {
-                MessageBoxW(
-                    None,
-                    w!(
-                        "Settings and updates need wisp-settings.exe beside wisp.exe. Both come in the release zip.\n\nOpen the download page?"
-                    ),
-                    w!("Wisp Settings"),
-                    MB_YESNO | MB_ICONINFORMATION,
-                )
-            };
-            if answer == IDYES
-                && let Err(error) = open("https://github.com/SumirSeth/wisp/releases/latest")
-            {
-                crate::util::error_box(&format!("Could not open the download page: {}", error.message()));
-            }
-            if com_initialized {
-                unsafe { CoUninitialize() };
-            }
-            ASKING.store(false, std::sync::atomic::Ordering::Release);
-        });
-        return Ok(());
     }
-    execute(&settings.to_string_lossy(), welcome.then_some("--welcome"), false)
+    open_settings(if welcome { "--settings --welcome" } else { "--settings" })
 }
 
 pub fn update_settings() -> Result<()> {
+    open_settings("--settings --page about")
+}
+
+fn open_settings(args: &str) -> Result<()> {
     let exe = std::env::current_exe().map_err(|e| windows::core::Error::new(E_FAIL, e.to_string()))?;
-    execute(
-        &exe.with_file_name("wisp-settings.exe").to_string_lossy(),
-        Some("--page about"),
-        false,
-    )
+    execute(&exe.to_string_lossy(), Some(args), false)
 }
 
 /// Uses an absolute path to avoid running a same-named executable in the

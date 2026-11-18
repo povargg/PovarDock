@@ -23,11 +23,15 @@ pub fn autostart_enabled() -> bool {
     unsafe { RegGetValueW(HKEY_CURRENT_USER, RUN_KEY, RUN_VALUE, RRF_RT_REG_SZ, None, None, None).is_ok() }
 }
 
-pub fn set_autostart(enabled: bool) -> Result<(), String> {
+pub fn set_autostart(enabled: bool, embedded: bool) -> Result<(), String> {
     unsafe {
         if enabled {
             let settings_exe = std::env::current_exe().map_err(|error| error.to_string())?;
-            let launcher = launcher_path(&settings_exe)?;
+            let launcher = if embedded {
+                settings_exe
+            } else {
+                launcher_path(&settings_exe)?
+            };
             let scoop = std::env::var_os("SCOOP").map(PathBuf::from);
             let launcher = crate::install::autostart_path(&launcher, scoop.as_deref());
             if !launcher.is_file() {

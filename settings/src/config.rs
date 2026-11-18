@@ -10,6 +10,9 @@ pub mod status_options;
 #[path = "../../src/config_write.rs"]
 mod write;
 use status_options::StatusPlacement;
+#[path = "../../src/dock/order.rs"]
+pub mod order;
+use crate::portfolio::{GLASS_CONTROLS, PortfolioPalette};
 
 /// The launcher creates its config from the same file.
 pub const DEFAULT_CONFIG: &str = include_str!("../../src/default-config.toml");
@@ -23,6 +26,8 @@ pub struct Config {
     pub win_key: bool,
     pub max_results: i64,
     pub theme: String,
+    pub palette: PortfolioPalette,
+    pub glass: [i64; 5],
     pub backdrop: String,
     pub check_for_updates: bool,
     pub show_recent: bool,
@@ -35,6 +40,7 @@ pub struct Config {
     pub dock_autohide: bool,
     pub dock_search_button: bool,
     pub dock_icon_size: i64,
+    pub dock_order: [order::Section; 9],
     /// `#RRGGBB` or `#RRGGBBAA`, or empty for the theme's colors.
     pub dock_color: String,
     /// `"pointer"`, `"main"`, or a screen's ID.
@@ -69,9 +75,18 @@ impl Config {
         };
         let theme = string("theme")?;
         choice(&theme, &["system", "dark", "light"], "theme")?;
+        let palette_key = string("palette")?;
+        let palette = PortfolioPalette::CHOICES
+            .iter()
+            .find_map(|&(palette, key, _)| (key == palette_key).then_some(palette))
+            .ok_or("Unknown color palette.")?;
+        let glass = GLASS_CONTROLS.map(|(key, _, max, default)| get(key).as_integer().unwrap_or(default).clamp(0, max));
         let backdrop = string("backdrop")?;
         choice(&backdrop, &["acrylic", "mica", "solid"], "backdrop")?;
-        let position = string("position")?;
+        let position = match string("position")?.as_str() {
+            "top" => "center".to_string(),
+            other => other.to_owned(),
+        };
         choice(&position, &["center", "bottom"], "position")?;
         let window_list = string("window_list")?;
         choice(&window_list, &["always", "multiple", "off"], "window_list")?;
@@ -116,6 +131,8 @@ impl Config {
             win_key: boolean("win_key")?,
             max_results,
             theme,
+            palette,
+            glass,
             backdrop,
             check_for_updates: boolean("check_for_updates")?,
             show_recent: boolean("show_recent")?,
@@ -128,6 +145,12 @@ impl Config {
             dock_autohide: boolean("dock_autohide")?,
             dock_search_button: boolean("dock_search_button")?,
             dock_icon_size,
+            dock_order: order::section_order(
+                get("dock_order")
+                    .as_array()
+                    .into_iter()
+                    .flat_map(|array| array.iter().filter_map(Value::as_str)),
+            ),
             dock_color,
             dock_screen: string("dock_screen")?,
             hide_taskbar: boolean("hide_taskbar")?,
@@ -229,6 +252,7 @@ impl Store {
 
     pub fn set(&self, key: &str, value: Value) -> Result<Config, String> {
         validate_edit(key, &value)?;
+        let _lock = write::edit_lock(&self.path)?;
         let mut doc = self.document()?;
         // Refuse to replace a config whose existing fields have invalid types.
         Config::from_document(&doc)?;
@@ -260,7 +284,21 @@ impl Store {
 }
 
 fn validate_edit(key: &str, value: &Value) -> Result<(), String> {
+    if let Some((_, label, max, _)) = GLASS_CONTROLS.iter().find(|(name, _, _, _)| *name == key) {
+        return value
+            .as_integer()
+            .filter(|value| (0..=*max).contains(value))
+            .map(|_| ())
+            .ok_or_else(|| format!("Choose {label} between 0% and {max}%."));
+    }
     match key {
+        "dock_order"
+            if value.as_array().is_some_and(|array| {
+                array.len() == order::DEFAULT_ORDER.len()
+                    && order::DEFAULT_ORDER
+                        .into_iter()
+                        .all(|section| array.iter().any(|v| v.as_str() == Some(section.name())))
+            }) => {}
         "dock_status_group" | "dock_status_icons" => {
             let values = value.as_array().ok_or("Choose a list of status names.")?;
             let mut seen = Vec::new();
@@ -276,8 +314,8 @@ fn validate_edit(key: &str, value: &Value) -> Result<(), String> {
         "hotkey" => {
             crate::hotkey::parse(value.as_str().ok_or("Shortcut must be text.")?)?;
         }
-        "win_key" if !value.is_bool() => return Err("win_key must be true or false.".into()),
-        "win_key" => {}
+        "win_key" | "check_for_updates" if !value.is_bool() => return Err(format!("{key} must be true or false.")),
+        "win_key" | "check_for_updates" => {}
         "search_url" => validate_url(value.as_str().ok_or("Search URL must be text.")?)?,
         "max_results" if !value.as_integer().is_some_and(|value| (1..=20).contains(&value)) => {
             return Err("Choose between 1 and 20 results.".into());
@@ -291,6 +329,7 @@ fn validate_edit(key: &str, value: &Value) -> Result<(), String> {
             return Err("Choose an app icon size between 24 and 40 DIP.".into());
         }
         "theme"
+        | "palette"
         | "backdrop"
         | "max_results"
         | "show_recent"
@@ -316,6 +355,25 @@ fn validate_edit(key: &str, value: &Value) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stores_every_default_key_using_the_settings_editor() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().join("config.toml"));
+        let defaults: DocumentMut = DEFAULT_CONFIG.parse().unwrap();
+        for (key, item) in defaults.iter() {
+            store
+                .set(key, item.as_value().unwrap().clone())
+                .unwrap_or_else(|error| panic!("{key}: {error}"));
+        }
+        assert!(!store.set("check_for_updates", false.into()).unwrap().check_for_updates);
+        assert_eq!(
+            store.set("palette", "liquid-glass".into()).unwrap().palette,
+            PortfolioPalette::LiquidGlass
+        );
+        assert!(store.set("glass_edge", 101.into()).is_err());
+        assert_eq!(store.set("glass_dispersion", 175.into()).unwrap().glass[3], 175);
+    }
 
     #[test]
     fn status_lists_validate_normalize_and_move_atomically() {
@@ -395,7 +453,12 @@ mod tests {
         store.set("show_recent", false.into()).unwrap();
         assert!(std::fs::read_to_string(&store.path).unwrap().contains("custom = 99"));
         assert!(!store.load().unwrap().show_recent);
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        let mut files: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        files.sort();
+        assert_eq!(files, ["config.lock", "config.toml"]);
     }
 
     #[test]

@@ -162,13 +162,14 @@ pub fn run() -> Result<()> {
             }
             return Err(windows::core::Error::new(
                 E_FAIL,
-                "Wisp is running, but its launcher window was not found within 3 s.",
+                "Windock is running, but its launcher window was not found within 3 s.",
             ));
         }
         if flag("--quit") {
             return Ok(());
         }
 
+        wisp_settings::cleanup_previous_update();
         let renderer = Renderer::new()?;
         let system_dpi = GetDpiForSystem();
         let instance = GetModuleHandleW(None)?;
@@ -304,7 +305,7 @@ pub fn run() -> Result<()> {
             }
             capture::start(l);
             if let Some(error) = config_error {
-                tray::notify(l.hwnd, "Wisp config", &error, true);
+                tray::notify(l.hwnd, "Windock config", &error, true);
             }
             if flag("--show") {
                 l.show();
@@ -494,7 +495,7 @@ struct Scope {
 
 /// The release notes of a version on GitHub.
 fn release_notes(version: &str) -> String {
-    format!("https://github.com/SumirSeth/wisp/releases/tag/v{version}")
+    format!("{}/releases/tag/v{version}", wisp_settings::REPOSITORY_URL)
 }
 
 impl Launcher {
@@ -546,7 +547,7 @@ impl Launcher {
             Ok(hotkey) => hotkey,
             Err(error) => {
                 if report_errors {
-                    tray::notify(self.hwnd, "Wisp config", &error, true);
+                    tray::notify(self.hwnd, "Windock config", &error, true);
                 }
                 return;
             }
@@ -611,13 +612,13 @@ impl Launcher {
             Ok(loaded) => loaded,
             Err(error) => {
                 // Keep the last valid config so a read or parse error does not change it.
-                tray::notify(self.hwnd, "Wisp config", &error, true);
+                tray::notify(self.hwnd, "Windock config", &error, true);
                 return;
             }
         };
         // One value that cannot be used falls back to its default; the rest applies.
         if let Some(warning) = warning {
-            tray::notify(self.hwnd, "Wisp config", &warning, true);
+            tray::notify(self.hwnd, "Windock config", &warning, true);
         }
         let file_search_changed = config.file_search != self.config.file_search
             || config.file_search_everything != self.config.file_search_everything
@@ -844,17 +845,16 @@ impl Launcher {
             Theme::System => !system::system_uses_light_theme(),
         };
         self.dark = dark;
-        let tint = self.config.dock_tint();
-        let key = crate::theme::MaterialKey::new(dark, self.config.backdrop, tint);
+        let key = crate::theme::MaterialKey::new(dark, &self.config);
         if let Some(dock) = &mut self.dock {
-            dock.apply_theme(dark, self.config.backdrop, tint);
+            dock.apply_theme(key);
         }
         if self.material == Some(key) {
             return;
         }
         self.material = Some(key);
         // Use the dock's persistent material and color in either launcher placement.
-        self.palette = crate::theme::apply_backdrop(self.hwnd, dark, self.config.backdrop, true, tint);
+        self.palette = crate::theme::apply_backdrop(self.hwnd, key, true);
         self.invalidate();
     }
 
@@ -1215,7 +1215,7 @@ impl Launcher {
         // Composition acrylic re-blurs on every resize. Use its solid tint during
         // motion, then restore the live material once the geometry settles.
         self.palette =
-            crate::theme::apply_moving_backdrop(self.hwnd, self.dark, self.config.backdrop, self.config.dock_tint());
+            crate::theme::apply_moving_backdrop(self.hwnd, crate::theme::MaterialKey::new(self.dark, &self.config));
         // The window no longer has the material `apply_theme` last set.
         self.material = None;
         // The clock starts once the backdrop is set, which can take a moment.
@@ -1298,7 +1298,7 @@ impl Launcher {
     fn read_update_notice(&mut self) {
         self.update_version = None;
         if !crate::channel::NIGHTLY && self.config.check_for_updates {
-            let path = util::data_dir().join("update.toml");
+            let path = util::data_dir().join(crate::update_notice::FILE_NAME);
             let mut state = crate::update_notice::State::load(&path);
             if state.available() {
                 self.update_version = Some(state.version.clone());
@@ -1347,17 +1347,21 @@ impl Launcher {
             self.invalidate();
             return;
         }
-        self.base_results = commands::search(self.editor.text(), &self.command_state);
-        self.base_results.extend(commands::open_windows::target_items(
-            self.editor.text(),
-            self.previous_target.as_ref(),
-        ));
-        if !commands::is_window_query(self.editor.text()) {
-            self.base_results.extend(self.surfaces.search(self.editor.text()));
-            self.base_results.extend(
-                self.searcher
-                    .search(self.editor.text(), &self.apps, &self.history, &self.config),
-            );
+        let query = self.editor.text();
+        self.base_results.clear();
+        if !search::is_shortcut_query(query) {
+            self.base_results = commands::search(query, &self.command_state);
+            self.base_results.extend(commands::open_windows::target_items(
+                query,
+                self.previous_target.as_ref(),
+            ));
+            if !commands::is_window_query(query) {
+                self.base_results.extend(self.surfaces.search(query));
+            }
+        }
+        if !commands::is_window_query(query) {
+            self.base_results
+                .extend(self.searcher.search(query, &self.apps, &self.history, &self.config));
         }
         if self.config.check_for_updates
             && self.editor.text().is_empty()
@@ -1367,12 +1371,12 @@ impl Launcher {
                 0,
                 ResultItem::new(
                     Kind::Command,
-                    format!("Update Wisp to {version}"),
-                    "Open Settings to update",
+                    format!("Wisp upstream {version} is available"),
+                    "Open Windock Settings",
                     Action::Update,
                 )
                 .glyph("\u{E777}")
-                .verb("Update"),
+                .verb("View"),
             );
             self.base_results.insert(
                 1,
@@ -1541,6 +1545,7 @@ impl Launcher {
                 command,
                 admin: as_admin,
             } => launch::shell(command, admin || *as_admin),
+            Action::Terminal(command) => launch::terminal(command),
             Action::Reveal(path) => launch::reveal(path),
             Action::None => return,
             Action::Command(command) => {
@@ -1613,26 +1618,31 @@ impl Launcher {
             // These need the launcher's foreground rights, so they run here.
             Command::FocusWindow(hwnd) => {
                 if let Err(error) = commands::open_windows::focus(hwnd) {
-                    tray::notify(self.hwnd, "Wisp", &error, true);
+                    tray::notify(self.hwnd, crate::channel::NAME, &error, true);
                 }
                 self.hide();
                 return;
             }
             Command::WindowControl(ref target, control) => {
                 if !target.valid() {
-                    tray::notify(self.hwnd, "Wisp", "The original window was closed or replaced.", true);
+                    tray::notify(
+                        self.hwnd,
+                        crate::channel::NAME,
+                        "The original window was closed or replaced.",
+                        true,
+                    );
                     return;
                 }
                 self.hide();
                 if let Err(error) = target.run(control) {
-                    tray::notify(self.hwnd, "Wisp", &error, true);
+                    tray::notify(self.hwnd, crate::channel::NAME, &error, true);
                 }
                 return;
             }
             Command::Power(power) => {
                 self.hide();
                 if let Err(error) = commands::power::run(power) {
-                    tray::notify(self.hwnd, "Wisp", &error, true);
+                    tray::notify(self.hwnd, crate::channel::NAME, &error, true);
                 }
                 return;
             }
@@ -1772,7 +1782,7 @@ impl Launcher {
                         changed = true;
                     }
                 }
-                commands::Event::Failed(error) => tray::notify(self.hwnd, "Wisp", &error, true),
+                commands::Event::Failed(error) => tray::notify(self.hwnd, crate::channel::NAME, &error, true),
             }
         }
         if changed && self.visible {
@@ -1895,10 +1905,9 @@ impl Launcher {
         } else {
             match self.results.get(self.selected) {
                 Some(ResultItem {
-                    kind: Kind::Calc,
-                    title,
+                    action: Action::Copy(text),
                     ..
-                }) => Some(title.as_str()),
+                }) => Some(text.as_str()),
                 _ => None,
             }
         };
@@ -2118,7 +2127,7 @@ impl Launcher {
             .collect();
         if !new.is_empty() {
             let message = new.iter().map(|e| e.as_str()).collect::<Vec<_>>().join("\n");
-            tray::notify(self.hwnd, "Wisp surfaces", &message, true);
+            tray::notify(self.hwnd, "Windock surfaces", &message, true);
         }
         self.surface_errors = self.surfaces.errors.clone();
     }
@@ -2715,6 +2724,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     | WM_APP_FRAME
                     | WM_CLOSE
                     | dock::WM_SHOW_NOW
+                    | crate::messages::WM_SHOW_SETTINGS
                     | dock::WM_SHOW_LAUNCHER
                     | dock::WM_DOCK_SHOW_TASKBAR
                     | taskbar::WM_TASKBAR_SHOW
@@ -2840,8 +2850,8 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
                     && let Ok(exe) = std::env::current_exe()
                 {
                     use std::os::windows::process::CommandExt;
-                    let _ = std::process::Command::new(exe.with_file_name("wisp-settings.exe"))
-                        .arg("--check-updates")
+                    let _ = std::process::Command::new(exe)
+                        .args(["--settings", "--check-updates"])
                         .creation_flags(0x08000000)
                         .spawn();
                 }
@@ -3064,6 +3074,9 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
                     dock.refresh();
                 }
             });
+        }
+        crate::messages::WM_SHOW_SETTINGS => {
+            with_launcher(|launcher| launcher.on_tray_command(tray::CMD_SETTINGS));
         }
         dock::WM_SHOW_NOW => {
             with_launcher(|l| {

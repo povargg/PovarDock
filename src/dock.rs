@@ -10,6 +10,8 @@ mod jump_lists;
 pub(crate) mod logic;
 #[path = "dock/pins.rs"]
 mod pins;
+#[path = "dock/power_menu.rs"]
+mod power_menu;
 #[path = "dock/render.rs"]
 mod render;
 #[path = "dock/space.rs"]
@@ -49,9 +51,9 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{Error, GUID, HSTRING, Result, w};
 
 use crate::commands::open_windows::{self, Window};
-use crate::config::{Backdrop, WindowListMode};
+use crate::config::WindowListMode;
 use crate::indexer::{AppEntry, IconPixels};
-use crate::theme::{Palette, Tint};
+use crate::theme::Palette;
 use crate::tray_host::{self, Action, TrayHost};
 
 use crate::messages::WM_APP_FRAME;
@@ -138,6 +140,7 @@ struct Item {
 enum Outside {
     AppMenu(Box<AppMenu>),
     Chevron { owner: HWND },
+    Power { owner: HWND, anchor: RECT },
     Launch(Launch),
 }
 
@@ -152,6 +155,10 @@ impl Outside {
             Outside::AppMenu(menu) => (*menu).track(hwnd),
             Outside::Chevron { owner } => {
                 chevron_track(hwnd, owner);
+                None
+            }
+            Outside::Power { owner, anchor } => {
+                power_menu::track(hwnd, owner, anchor);
                 None
             }
             Outside::Launch(launch) => {
@@ -407,10 +414,6 @@ struct State {
     press: Option<Press>,
     suppress_click: bool,
     palette: Palette,
-    backdrop: Backdrop,
-    /// The user's dock color, kept so system theme changes reapply it.
-    tint: Option<Tint>,
-    dark: bool,
     material: Option<crate::theme::MaterialKey>,
     window_list_mode: WindowListMode,
     app_icon_size: f32,
@@ -738,9 +741,6 @@ impl Dock {
             press: None,
             suppress_click: false,
             palette: Palette::new(true, true),
-            backdrop: Backdrop::Acrylic,
-            tint: None,
-            dark: true,
             material: None,
             window_list_mode: WindowListMode::default(),
             app_icon_size: logic::DEFAULT_APP_ICON_SIZE,
@@ -841,7 +841,7 @@ impl Dock {
                 CreateWindowExW(
                     WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
                     class.lpszClassName,
-                    w!("Wisp Dock"),
+                    w!("Windock Dock"),
                     WS_POPUP | WS_CAPTION,
                     0,
                     0,
@@ -884,13 +884,13 @@ impl Dock {
             (
                 Popup::Tip,
                 WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
-                w!("Wisp Dock tooltip"),
+                w!("Windock Dock tooltip"),
             ),
             // The window list takes clicks, but not the focus.
             (
                 Popup::Windows,
                 WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
-                w!("Wisp Dock windows"),
+                w!("Windock Dock windows"),
             ),
         ] {
             let window = unsafe {
@@ -946,7 +946,7 @@ impl Dock {
             }
             dock.hooks.push(hook);
         }
-        dock.apply_theme(true, Backdrop::Acrylic, None);
+        dock.apply_theme(crate::theme::MaterialKey::new(true, &crate::config::Config::default()));
         dock.refresh();
         Ok(dock)
     }
@@ -1224,10 +1224,10 @@ impl Dock {
         });
     }
 
-    pub fn apply_theme(&mut self, dark: bool, backdrop: Backdrop, tint: Option<Tint>) {
+    pub fn apply_theme(&mut self, material: crate::theme::MaterialKey) {
         self.update(Some("apply_theme"), move |s| {
             s.finish_press(false);
-            s.apply_material(dark, backdrop, tint);
+            s.apply_material(material);
         });
     }
 
@@ -1456,19 +1456,18 @@ impl State {
         }
     }
 
-    fn apply_material(&mut self, dark: bool, backdrop: Backdrop, tint: Option<Tint>) {
-        let key = crate::theme::MaterialKey::new(dark, backdrop, tint);
+    fn apply_material(&mut self, key: crate::theme::MaterialKey) {
         if self.material == Some(key) {
             return;
         }
         self.material = Some(key);
-        self.backdrop = backdrop;
-        self.tint = tint;
-        self.dark = dark;
-        self.palette = crate::theme::apply_backdrop(self.hwnd, dark, backdrop, true, tint);
+        self.palette = crate::theme::apply_backdrop(self.hwnd, key, true);
+        unsafe {
+            let _ = InvalidateRect(Some(self.hwnd), None, false);
+        }
         // Popups over the dock (flyouts, tooltips, window lists) wear the same color.
         for hwnd in [self.flyout, self.tip, self.windows] {
-            crate::theme::apply_backdrop(hwnd, dark, backdrop, true, tint);
+            crate::theme::apply_backdrop(hwnd, key, true);
             unsafe {
                 let _ = InvalidateRect(Some(hwnd), None, false);
             }
@@ -2309,7 +2308,7 @@ impl State {
             Some(tray::Tip::Inline(i)) => i >= self.inline.len(),
             Some(tray::Tip::Flyout(i)) => i >= self.tray.len(),
             Some(tray::Tip::Chevron) => self.tray_host.is_none(),
-            Some(tray::Tip::Status(_)) => false,
+            Some(tray::Tip::Status(_) | tray::Tip::Settings | tray::Tip::Power) => false,
             // The desktop pill has nothing to do with the tray.
             None => false,
         };
@@ -2709,6 +2708,11 @@ impl State {
                 self.part_rect(part),
             ),
             Some(tray::Tip::Chevron) => ("Show hidden icons".to_string(), self.part_rect(logic::Part::Chevron)),
+            Some(tray::Tip::Settings) => (
+                crate::channel::SETTINGS_NAME.into(),
+                self.part_rect(logic::Part::Settings),
+            ),
+            Some(tray::Tip::Power) => ("Power".into(), self.part_rect(logic::Part::Power)),
             Some(tray::Tip::Inline(i)) => (
                 self.inline
                     .get(i)
@@ -2786,28 +2790,46 @@ impl State {
         )
     }
 
-    /// Opens Now, the calendar, or the tray target.
-    fn click_part(&mut self, part: logic::Part) {
+    /// Opens the control at this slot or delegates its menu outside the state borrow.
+    fn click_part(&mut self, part: logic::Part) -> Option<Outside> {
         let target = match part {
             logic::Part::Chevron => {
                 self.toggle_flyout();
-                return;
+                return None;
             }
             logic::Part::Tray(position) => {
                 self.click_inline(position, Action::Click);
-                return;
+                return None;
             }
             logic::Part::Status | logic::Part::Icon(_) => {
                 unsafe {
                     let _ = PostMessageW(Some(self.owner), WM_SHOW_NOW, WPARAM(0), LPARAM(0));
                 }
-                return;
+                return None;
             }
             logic::Part::Clock => "ms-actioncenter:",
+            logic::Part::Settings => {
+                unsafe {
+                    let _ = PostMessageW(
+                        Some(self.owner),
+                        crate::messages::WM_SHOW_SETTINGS,
+                        WPARAM(0),
+                        LPARAM(0),
+                    );
+                }
+                return None;
+            }
+            logic::Part::Power => {
+                return self.part_rect(part).map(|anchor| Outside::Power {
+                    owner: self.owner,
+                    anchor,
+                });
+            }
         };
         if let Err(error) = crate::launch::open(target) {
             eprintln!("Dock status: {error}");
         }
+        None
     }
 
     /// Wheel `delta` over the dock switches desktops a notch at a time,
@@ -3018,9 +3040,8 @@ impl State {
         pids.sort_unstable();
         pids.dedup();
         // Held from now until the menu closes, so End task ends these
-        // processes and no other that might take one of their IDs. Only
-        // offered where Windows offers it on the taskbar.
-        let ending = (!shell && end_task_enabled())
+        // processes and no other that might take one of their IDs.
+        let ending = (!shell)
             .then(|| open_windows::EndTask::open(&pids))
             .filter(open_windows::EndTask::has_target);
         // Only file-backed programs can run elevated; packaged apps and shell hosts cannot.
@@ -3124,7 +3145,10 @@ impl State {
             PressTarget::App(item.app.id.clone())
         } else {
             // Notification icons keep their app-owned click behavior.
-            if matches!(self.hit_part(lp), Some(logic::Part::Tray(_))) {
+            if matches!(
+                self.hit_part(lp),
+                Some(logic::Part::Tray(_) | logic::Part::Settings | logic::Part::Power)
+            ) {
                 return;
             }
             PressTarget::Section(self.row_layout().section_at(x, scale))
@@ -3302,27 +3326,6 @@ fn load_pins() -> Vec<AppEntry> {
             path: pin.path,
         })
         .collect()
-}
-
-/// Whether Windows offers End task on the taskbar: Settings > System > For
-/// developers > End task. Off for most people, so the dock hides it too.
-fn end_task_enabled() -> bool {
-    use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
-    let mut value = 0u32;
-    let mut size = 4u32;
-    unsafe {
-        RegGetValueW(
-            HKEY_CURRENT_USER,
-            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\TaskbarDeveloperSettings"),
-            w!("TaskbarEndTask"),
-            RRF_RT_REG_DWORD,
-            None,
-            Some((&raw mut value).cast()),
-            Some(&mut size),
-        )
-        .is_ok()
-            && value == 1
-    }
 }
 
 fn window_aumid(hwnd: HWND) -> Option<String> {
@@ -3570,9 +3573,9 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
         {
             match msg {
                 WM_POWERBROADCAST | WM_THEMECHANGED => {
-                    let dark = s.dark;
-                    let (backdrop, tint) = (s.backdrop, s.tint);
-                    s.apply_material(dark, backdrop, tint);
+                    if let Some(material) = s.material {
+                        s.apply_material(material.refreshed());
+                    }
                     // Battery level and charging arrive here too.
                     if msg == WM_POWERBROADCAST {
                         s.update_status();
@@ -3713,6 +3716,8 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                     s.hover_tip(match hover_part {
                         Some(part @ (logic::Part::Status | logic::Part::Icon(_))) => Some(tray::Tip::Status(part)),
                         Some(logic::Part::Chevron) => Some(tray::Tip::Chevron),
+                        Some(logic::Part::Settings) => Some(tray::Tip::Settings),
+                        Some(logic::Part::Power) => Some(tray::Tip::Power),
                         Some(logic::Part::Tray(i)) => Some(tray::Tip::Inline(i)),
                         _ => None,
                     });
@@ -3755,7 +3760,7 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                     } else if let Some(part) = s.hit_part(lp)
                         && msg == WM_LBUTTONUP
                     {
-                        s.click_part(part);
+                        outside = s.click_part(part);
                     }
                     let target = s.hwnd;
                     drop(s);

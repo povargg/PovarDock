@@ -5,6 +5,7 @@ use std::time::SystemTime;
 
 use serde::Deserialize;
 
+use crate::portfolio::{GLASS_CONTROLS, PortfolioPalette};
 use crate::util;
 
 #[path = "config_write.rs"]
@@ -72,6 +73,9 @@ pub struct Config {
     pub win_key: bool,
     pub max_results: usize,
     pub theme: Theme,
+    pub palette: PortfolioPalette,
+    #[serde(skip)]
+    pub glass: [u8; 5],
     pub backdrop: Backdrop,
     pub position: Position,
     pub show_recent: bool,
@@ -149,6 +153,13 @@ impl Config {
         let mut table: toml::Table = toml::from_str(DEFAULT_CONFIG)?;
         table.extend(toml::from_str::<toml::Table>(MISSING_KEYS)?);
         table.extend(toml::from_str::<toml::Table>(text)?);
+        let glass = GLASS_CONTROLS.map(|(key, _, max, default)| {
+            table
+                .get(key)
+                .and_then(toml::Value::as_integer)
+                .unwrap_or(default)
+                .clamp(0, max) as u8
+        });
         let names = table
             .get("dock_order")
             .and_then(toml::Value::as_array)
@@ -165,6 +176,7 @@ impl Config {
             ),
         );
         let mut config: Config = table.try_into()?;
+        config.glass = glass;
         let placement = crate::dock::logic::StatusPlacement::new(&config.dock_status_group, &config.dock_status_icons);
         config.dock_status_group = placement.names(true);
         config.dock_status_icons = placement.names(false);
@@ -177,6 +189,7 @@ impl Config {
     }
 
     fn write_order(path: &std::path::Path, names: &[&str]) -> Result<(), String> {
+        let _lock = write::edit_lock(path)?;
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => DEFAULT_CONFIG.into(),
@@ -194,6 +207,25 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn portfolio_themes_load_in_both_modes_with_the_original_config_defaults() {
+        let original = Config::parse("hotkey = 'Ctrl+Space'\ntheme = 'light'\ndock = true").unwrap();
+        assert_eq!(original.palette, PortfolioPalette::Windows);
+        assert_eq!(original.glass, [100, 100, 100, 100, 30]);
+        for (palette, name, _) in PortfolioPalette::CHOICES {
+            let text = format!("palette = '{name}'\nglass_edge = 500\nglass_distortion = -10");
+            let config = Config::parse(&text).unwrap();
+            assert_eq!(config.palette, palette);
+            assert_eq!(config.glass, [100, 100, 0, 100, 100]);
+            if palette != PortfolioPalette::Windows {
+                assert_ne!(
+                    palette.colors(true).unwrap().surface,
+                    palette.colors(false).unwrap().surface
+                );
+            }
+        }
+    }
 
     #[test]
     fn order_defaults_normalizes_and_preserves_other_config_edits() {

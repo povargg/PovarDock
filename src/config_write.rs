@@ -1,7 +1,23 @@
 //! Comment-preserving edits and atomic config replacement, shared with Settings.
 
-use std::{io::Write, path::Path};
+use std::{fs::File, io::Write, path::Path};
 use toml_edit::{DocumentMut, Item, Value};
+
+/// Serializes the read/modify/write sequence across the launcher and Settings.
+pub fn edit_lock(path: &Path) -> Result<File, String> {
+    let parent = path.parent().ok_or("The config path has no folder.")?;
+    std::fs::create_dir_all(parent).map_err(|error| format!("Cannot create the config folder: {error}"))?;
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(parent.join("config.lock"))
+        .map_err(|error| format!("Cannot open the config lock: {error}"))?;
+    file.lock()
+        .map_err(|error| format!("Cannot lock config.toml: {error}"))?;
+    Ok(file)
+}
 
 pub fn replace(doc: &mut DocumentMut, key: &str, mut value: Value) {
     if let Some(old) = doc.get(key).and_then(Item::as_value) {

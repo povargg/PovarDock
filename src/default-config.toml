@@ -14,6 +14,17 @@ max_results = 8
 # "system", "dark" or "light"
 theme = "system"
 
+# "windows", "gruvbox", "tokyo-night", "everforest", "nord", "catppuccin",
+# "dracula", "one-dark", "solarized", "rose-pine" or "liquid-glass".
+palette = "windows"
+
+# Liquid Glass optics, in percent. Light mode caps transparency at 100%.
+glass_transparency = 100
+glass_refraction = 100
+glass_distortion = 100
+glass_dispersion = 100
+glass_edge = 30
+
 # Launcher backdrop: "acrylic", "mica" or "solid"
 backdrop = "acrylic"
 

@@ -1,11 +1,11 @@
 [package]
 name = "wisp"
-version = "0.8.1"
+version = "0.9.0"
 edition = "2024"
-description = "A dock and a launcher for Windows"
+description = "A customizable dock and keyboard launcher for Windows"
 license = "MIT"
-authors = ["Sumir Seth"]
-repository = "https://github.com/SumirSeth/wisp"
+authors = ["Sumir Seth", "povargg"]
+repository = "https://github.com/povargg/WinDock"
 readme = "README.md"
 keywords = ["dock", "launcher", "taskbar", "windows", "productivity"]
 categories = ["command-line-utilities"]
@@ -15,11 +15,12 @@ members = ["settings"]
 
 [features]
 # Side-by-side build with its own data folder and window names.
-nightly = []
+nightly = ["wisp-settings/nightly"]
 # Buffered QPC measurements and isolated capture scenarios; absent in shipping builds.
 perf-trace = ["windows/Win32_System_Performance"]
 
 [dependencies]
+wisp-settings = { path = "settings" }
 nucleo-matcher = "0.3"
 serde = { version = "1", features = ["derive"] }
 toml = "1"
@@ -47,8 +48,11 @@ features = [
     "Win32_Globalization",
     "Win32_Graphics_Direct2D",
     "Win32_Graphics_Direct2D_Common",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
     "Win32_Graphics_DirectWrite",
     "Win32_Graphics_Dwm",
+    "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
     "Win32_Media_Audio",

@@ -12,60 +12,44 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      # rust-toolchain.toml selects the Rust version.
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
-      - run: cargo build --release --workspace
+      - name: Locate the Windows SDK shader compiler
+        shell: pwsh
+        run: |
+          $sdk = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+          $fxc = Get-ChildItem -Path (Join-Path $sdk '*\x64\fxc.exe') -File |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
+            Select-Object -First 1
+          if (-not $fxc) { throw 'The Windows SDK shader compiler was not found.' }
+          "GPUI_FXC_PATH=$($fxc.FullName)" >> $env:GITHUB_ENV
+      - name: Check the release tag
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw "Invalid stable release tag $tag" }
+          $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $versions = @($metadata.packages | ForEach-Object { "v$($_.version)" } | Select-Object -Unique)
+          if ($versions.Count -ne 1 -or $versions[0] -ne $tag) { throw "Cargo versions must match $tag." }
+      - run: cargo test --locked --workspace
+      - run: cargo build --locked --release -p wisp --bin wisp
       - name: Package
         shell: pwsh
-        run: |
-          $name = "wisp-${{ github.ref_name }}-x86_64-windows"
-          New-Item -ItemType Directory $name | Out-Null
-          Copy-Item target/release/wisp.exe, target/release/wisp-settings.exe, README.md, LICENSE $name
-          Compress-Archive "$name/*" "$name.zip"
-          # Standalone exes are only for 0.5.x updaters. Drop them once those are rare,
-          # no earlier than two releases after the zip updater ships.
-          Copy-Item target/release/wisp.exe "wisp-${{ github.ref_name }}-x86_64.exe"
-          Copy-Item target/release/wisp-settings.exe "wisp-settings-${{ github.ref_name }}-x86_64.exe"
-          $files = "$name.zip", "wisp-${{ github.ref_name }}-x86_64.exe", "wisp-settings-${{ github.ref_name }}-x86_64.exe"
-          $files | ForEach-Object { (Get-FileHash $_ -Algorithm SHA256).Hash + "  $_" } | Out-File -Encoding ascii SHA256SUMS.txt
-      - name: Generate package manifests
-        shell: pwsh
-        run: |
-          ./packaging/winget/generate.ps1 -Tag "${{ github.ref_name }}" `
-            -ZipPath "wisp-${{ github.ref_name }}-x86_64-windows.zip" -OutputDirectory manifests
-      - name: Upload package manifests
-        uses: actions/upload-artifact@v4
-        with:
-          name: package-manifests-${{ github.ref_name }}
-          path: manifests/
-          if-no-files-found: error
-      # The notes start with the download, then the version's CHANGELOG.md section and the
-      # pull requests GitHub lists for the release (.github/release.yml).
-      - name: Notes
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: pwsh
-        run: |
-          $version = "${{ github.ref_name }}".TrimStart('v')
-          $section = [regex]::Match((Get-Content CHANGELOG.md -Raw),
-            "(?ms)^## $([regex]::Escape($version))\b[^\n]*\n(.*?)(?=^## |\z)").Groups[1].Value.Trim()
-          if (-not $section) { throw "CHANGELOG.md has no section for $version" }
-          $pulls = gh api "repos/${{ github.repository }}/releases/generate-notes" `
-            -f tag_name="${{ github.ref_name }}" --jq .body
-          $pulls = $pulls -join "`n"
-          $download = '**Download `wisp-${{ github.ref_name }}-x86_64-windows.zip`**, extract it and run `wisp.exe`. The separate .exe files are for the built-in updater.'
-          "$download`n`n$section`n`n<details>`n<summary>Pull requests</summary>`n`n$pulls`n`n</details>`n" |
-            Out-File -Encoding utf8 notes.md
+        run: ./scripts/package-release.ps1 -Executable ./target/release/wisp.exe -OutputDirectory ./dist
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release create "${{ github.ref_name }}" `
-            "wisp-${{ github.ref_name }}-x86_64-windows.zip" `
-            "wisp-${{ github.ref_name }}-x86_64.exe" `
-            "wisp-settings-${{ github.ref_name }}-x86_64.exe" `
-            SHA256SUMS.txt `
-            --title "Wisp ${{ github.ref_name }}" --notes-file notes.md
+          $tag = $env:GITHUB_REF_NAME
+          gh release view $tag --json isDraft 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Output "Release $tag already exists."
+            exit 0
+          }
+
+          gh release create $tag ./dist/windock-x64.exe ./dist/SHA256SUMS.txt --verify-tag --draft --title "WinDock $tag" --generate-notes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh release edit $tag --draft=false
+          exit $LASTEXITCODE

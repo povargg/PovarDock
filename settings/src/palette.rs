@@ -1,6 +1,7 @@
 //! Pure black and paper white. Wisp's cyan marks only focus, selection and
 //! switches that are on.
 
+use crate::portfolio::PortfolioPalette;
 use gpui_kit::component::theme::Theme;
 use gpui_kit::{App, Hsla, rgb, rgba};
 
@@ -54,18 +55,31 @@ fn light() -> Palette {
 }
 
 impl Palette {
-    pub fn current(cx: &App) -> Self {
-        if Theme::global(cx).mode.is_dark() {
-            dark()
-        } else {
-            light()
+    pub fn current(cx: &App, choice: PortfolioPalette) -> Self {
+        let is_dark = Theme::global(cx).mode.is_dark();
+        let base = if is_dark { dark() } else { light() };
+        let Some(colors) = choice.colors(is_dark) else {
+            return base;
+        };
+        Palette {
+            bg: rgb(colors.surface).into(),
+            surface: rgb(colors.raised).into(),
+            raised: rgb(colors.raised).into(),
+            border: rgb(colors.line).into(),
+            fg: rgb(colors.ink).into(),
+            muted: rgb(colors.muted).into(),
+            accent: rgb(colors.accent).into(),
+            accent_soft: rgba(colors.accent << 8 | 0x30).into(),
+            accent_fg: rgb(colors.surface).into(),
+            warn: rgb(colors.warm).into(),
+            ..base
         }
     }
 }
 
 /// Recolors the component library so inputs, buttons and switches match.
-pub fn apply(cx: &mut App) {
-    let p = Palette::current(cx);
+pub fn apply(choice: PortfolioPalette, cx: &mut App) {
+    let p = Palette::current(cx, choice);
     Theme::update(cx, |t| {
         t.background = p.bg;
         t.foreground = p.fg;

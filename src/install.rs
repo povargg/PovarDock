@@ -12,8 +12,8 @@ pub enum Manager {
 impl Manager {
     pub fn instruction(self) -> &'static str {
         match self {
-            Self::Winget => "Installed with winget. Update with winget upgrade SumirSeth.Wisp.",
-            Self::Scoop => "Installed with Scoop. Update with scoop update wisp.",
+            Self::Winget => "Update this installation through WinGet.",
+            Self::Scoop => "Update this installation through Scoop.",
         }
     }
 }

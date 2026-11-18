@@ -1,0 +1,242 @@
+//! Palette values from the portfolio's themes.css (75413bc).
+
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PortfolioPalette {
+    #[default]
+    Windows,
+    Gruvbox,
+    TokyoNight,
+    Everforest,
+    Nord,
+    Catppuccin,
+    Dracula,
+    OneDark,
+    Solarized,
+    RosePine,
+    LiquidGlass,
+}
+
+#[derive(Clone, Copy)]
+pub struct Colors {
+    pub surface: u32,
+    pub raised: u32,
+    pub ink: u32,
+    pub muted: u32,
+    pub line: u32,
+    pub accent: u32,
+    pub warm: u32,
+}
+
+pub const GLASS_CONTROLS: [(&str, &str, i64, i64); 5] = [
+    ("glass_transparency", "Transparency", 200, 100),
+    ("glass_refraction", "Rim refraction", 200, 100),
+    ("glass_distortion", "Rim distortion", 200, 100),
+    ("glass_dispersion", "Color dispersion", 200, 100),
+    ("glass_edge", "Edge thickness", 100, 30),
+];
+
+impl PortfolioPalette {
+    pub const CHOICES: [(Self, &str, &str); 11] = [
+        (Self::Windows, "windows", "Windows"),
+        (Self::Gruvbox, "gruvbox", "Gruvbox"),
+        (Self::TokyoNight, "tokyo-night", "Tokyo Night"),
+        (Self::Everforest, "everforest", "Everforest"),
+        (Self::Nord, "nord", "Nord"),
+        (Self::Catppuccin, "catppuccin", "Catppuccin"),
+        (Self::Dracula, "dracula", "Dracula"),
+        (Self::OneDark, "one-dark", "One Dark"),
+        (Self::Solarized, "solarized", "Solarized"),
+        (Self::RosePine, "rose-pine", "Rosé Pine"),
+        (Self::LiquidGlass, "liquid-glass", "Liquid Glass"),
+    ];
+
+    pub fn colors(self, dark: bool) -> Option<Colors> {
+        let colors = match (self, dark) {
+            (Self::Windows, _) => return None,
+            (Self::Gruvbox, false) => Colors {
+                surface: 0xFBF1C7,
+                raised: 0xEBDBB2,
+                ink: 0x282828,
+                muted: 0x3C3836,
+                line: 0xA89984,
+                accent: 0x79740E,
+                warm: 0xAF3A03,
+            },
+            (Self::Gruvbox, true) => Colors {
+                surface: 0x282828,
+                raised: 0x3C3836,
+                ink: 0xFBF1C7,
+                muted: 0xD5C4A1,
+                line: 0x665C54,
+                accent: 0xB8BB26,
+                warm: 0xFE8019,
+            },
+            (Self::TokyoNight, false) => Colors {
+                surface: 0xE1E2E7,
+                raised: 0xD5D6DB,
+                ink: 0x252B43,
+                muted: 0x3D4665,
+                line: 0x9DA5BC,
+                accent: 0x2E57A5,
+                warm: 0x984314,
+            },
+            (Self::TokyoNight, true) => Colors {
+                surface: 0x1A1B26,
+                raised: 0x24283B,
+                ink: 0xD5DCF4,
+                muted: 0xB7C3E6,
+                line: 0x4A5270,
+                accent: 0x9AB7FF,
+                warm: 0xFFAE80,
+            },
+            (Self::Everforest, false) => Colors {
+                surface: 0xFDF6E3,
+                raised: 0xEFEBD4,
+                ink: 0x35473E,
+                muted: 0x465943,
+                line: 0xA2AB90,
+                accent: 0x52652A,
+                warm: 0xA2442D,
+            },
+            (Self::Everforest, true) => Colors {
+                surface: 0x2D353B,
+                raised: 0x343F44,
+                ink: 0xE3DEC3,
+                muted: 0xC2C6B1,
+                line: 0x56625A,
+                accent: 0xA7C080,
+                warm: 0xE69875,
+            },
+            (Self::Nord, false) => Colors {
+                surface: 0xECEFF4,
+                raised: 0xE5E9F0,
+                ink: 0x2E3440,
+                muted: 0x404B61,
+                line: 0x9EABC0,
+                accent: 0x355779,
+                warm: 0x8E4C56,
+            },
+            (Self::Nord, true) => Colors {
+                surface: 0x2E3440,
+                raised: 0x3B4252,
+                ink: 0xECEFF4,
+                muted: 0xD8DEE9,
+                line: 0x53617B,
+                accent: 0x88C0D0,
+                warm: 0xE6AE92,
+            },
+            (Self::Catppuccin, false) => Colors {
+                surface: 0xEFF1F5,
+                raised: 0xE6E9EF,
+                ink: 0x282A40,
+                muted: 0x444761,
+                line: 0xA9AFC3,
+                accent: 0x6B348C,
+                warm: 0x9A365B,
+            },
+            (Self::Catppuccin, true) => Colors {
+                surface: 0x1E1E2E,
+                raised: 0x313244,
+                ink: 0xCDD6F4,
+                muted: 0xB9C2E1,
+                line: 0x515778,
+                accent: 0xCBA6F7,
+                warm: 0xFAB387,
+            },
+            (Self::Dracula, false) => Colors {
+                surface: 0xFFFBEB,
+                raised: 0xF2EAD5,
+                ink: 0x24232C,
+                muted: 0x4D4A55,
+                line: 0xABA0AA,
+                accent: 0x6740A4,
+                warm: 0x923E2B,
+            },
+            (Self::Dracula, true) => Colors {
+                surface: 0x282A36,
+                raised: 0x37394D,
+                ink: 0xF8F8F2,
+                muted: 0xDCDAEB,
+                line: 0x595B74,
+                accent: 0xBD93F9,
+                warm: 0xFFB86C,
+            },
+            (Self::OneDark, false) => Colors {
+                surface: 0xFAFAFA,
+                raised: 0xECEEF2,
+                ink: 0x292C36,
+                muted: 0x454951,
+                line: 0xAEB5C1,
+                accent: 0x355C91,
+                warm: 0x9D3E39,
+            },
+            (Self::OneDark, true) => Colors {
+                surface: 0x282C34,
+                raised: 0x333844,
+                ink: 0xF0F2F8,
+                muted: 0xC1C8D5,
+                line: 0x525C6B,
+                accent: 0x77BDF3,
+                warm: 0xE5B07B,
+            },
+            (Self::Solarized, false) => Colors {
+                surface: 0xFDF6E3,
+                raised: 0xEEE8D5,
+                ink: 0x073642,
+                muted: 0x36535C,
+                line: 0xA5ABA2,
+                accent: 0x166B6C,
+                warm: 0x9D4419,
+            },
+            (Self::Solarized, true) => Colors {
+                surface: 0x002B36,
+                raised: 0x073642,
+                ink: 0xEEE8D5,
+                muted: 0xADBFBB,
+                line: 0x41656B,
+                accent: 0x83C6BC,
+                warm: 0xF2A675,
+            },
+            (Self::RosePine, false) => Colors {
+                surface: 0xFAF4ED,
+                raised: 0xF2E9E1,
+                ink: 0x383447,
+                muted: 0x544959,
+                line: 0xB6A7B1,
+                accent: 0x7A4663,
+                warm: 0x954741,
+            },
+            (Self::RosePine, true) => Colors {
+                surface: 0x191724,
+                raised: 0x26233A,
+                ink: 0xE0DEF4,
+                muted: 0xB8B2D2,
+                line: 0x514A66,
+                accent: 0xEBBCBA,
+                warm: 0xF6C177,
+            },
+            (Self::LiquidGlass, false) => Colors {
+                surface: 0xFAF4E9,
+                raised: 0xEFE7DF,
+                ink: 0x25202A,
+                muted: 0x372B38,
+                line: 0xA596A7,
+                accent: 0x473358,
+                warm: 0x844B4B,
+            },
+            (Self::LiquidGlass, true) => Colors {
+                surface: 0x101221,
+                raised: 0x1D2037,
+                ink: 0xF8F3FF,
+                muted: 0xE1D9EE,
+                line: 0x73748E,
+                accent: 0xC9CBFF,
+                warm: 0xFEC9B3,
+            },
+        };
+        Some(colors)
+    }
+}

@@ -1,4 +1,10 @@
-# Maintaining Wisp
+# Maintaining WinDock
+
+The `windock` branch carries WinDock. Releases pair `windock-x64.exe` with
+`SHA256SUMS.txt`. See [Build from source](README.md#build-from-source) for the
+current package and tag commands.
+
+## Upstream Wisp maintenance notes
 
 How Wisp's pull requests, issues and releases are handled. Contributors follow [CONTRIBUTING.md](CONTRIBUTING.md); this file covers what happens after.
 

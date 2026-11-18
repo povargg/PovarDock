@@ -1,3 +1,6 @@
+use crate::config::{Backdrop, Config};
+use crate::glass;
+use crate::portfolio::PortfolioPalette;
 use windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F;
 
 /// Brand color from `assets/icon.svg`.
@@ -106,6 +109,7 @@ enum Accent {
 }
 
 pub struct Palette {
+    pub glass: Option<glass::Style>,
     pub background: D2D1_COLOR_F,
     pub text: D2D1_COLOR_F,
     pub subtext: D2D1_COLOR_F,
@@ -123,6 +127,50 @@ pub struct Palette {
 }
 
 impl Palette {
+    fn for_material(material: MaterialKey, translucent: bool) -> Self {
+        let MaterialKey {
+            dark,
+            palette,
+            glass,
+            tint,
+            ..
+        } = material;
+        let Some(colors) = palette.colors(dark) else {
+            return Self::with_tint(dark, translucent, tint);
+        };
+        let text_dark = tint
+            .filter(|t| t.alpha.unwrap_or(Tint::DEFAULT_ALPHA) >= Tint::TEXT_ALPHA)
+            .map_or(dark, Tint::is_dark);
+        let text = palette.colors(text_dark).unwrap();
+        let opaque = rgba(colors.surface, 1.0);
+        let mut result = Self::new(dark, translucent);
+        result.background = rgba(colors.surface, result.background.a);
+        if let Some(tint) = tint {
+            let alpha = tint.alpha.unwrap_or(Tint::DEFAULT_ALPHA);
+            result.background = over(result.background, tint.rgb, alpha);
+        }
+        result.text = rgba(text.ink, 1.0);
+        result.subtext = rgba(text.muted, 1.0);
+        result.placeholder = rgba(text.muted, 0.82);
+        result.divider = rgba(colors.line, 0.40);
+        result.tile = rgba(colors.raised, 0.78);
+        result.row_selected = rgba(text.accent, if text_dark { 0.19 } else { 0.14 });
+        result.accent = rgba(text.accent, 1.0);
+        result.text_selection = rgba(text.accent, if text_dark { 0.40 } else { 0.27 });
+        result.scrollbar = rgba(colors.line, 0.76);
+        result.background_solid = opaque;
+        result.acrylic_tint = rgba(colors.surface, 0.74);
+        if palette == PortfolioPalette::LiquidGlass {
+            result.background.a = if translucent {
+                glass::tint_opacity(dark, glass[0])
+            } else {
+                1.0
+            };
+            result.glass = Some(glass::Style { dark, controls: glass });
+        }
+        result
+    }
+
     /// The palette for `dark` and `translucent`, recolored by `tint`. A
     /// translucent surface keeps the theme's own acrylic and lays the color
     /// over it at the tint's strength: at none it looks like the theme, at
@@ -150,6 +198,7 @@ impl Palette {
     pub fn new(dark: bool, translucent: bool) -> Self {
         if dark {
             Self {
+                glass: None,
                 background: if translucent {
                     rgba(0x1C1C1C, 0.3)
                 } else {
@@ -169,6 +218,7 @@ impl Palette {
             }
         } else {
             Self {
+                glass: None,
                 background: if translucent {
                     rgba(0xF3F3F3, 0.4)
                 } else {
@@ -264,19 +314,17 @@ fn composition_accent(hwnd: windows::Win32::Foundation::HWND, accent: Accent, pa
 /// One material policy for launcher, dock and its owned popups. Persistent
 /// acrylic uses composition blur because DWM's system material falls back
 /// to solid when the nonactivating dock is inactive.
-pub fn apply_backdrop(
-    hwnd: windows::Win32::Foundation::HWND,
-    dark: bool,
-    backdrop: crate::config::Backdrop,
-    persistent: bool,
-    tint: Option<Tint>,
-) -> Palette {
-    use crate::config::Backdrop;
+pub fn apply_backdrop(hwnd: windows::Win32::Foundation::HWND, material: MaterialKey, persistent: bool) -> Palette {
     use windows::Win32::Graphics::Dwm::*;
     use windows::Win32::UI::Controls::MARGINS;
-    let tint = tint.map(|tint| tint.on(backdrop));
-    let translucent = backdrop != Backdrop::Solid && transparency_available();
-    let mut palette = Palette::with_tint(dark, translucent, tint);
+    let backdrop = material.backdrop;
+    let glass = material.palette == PortfolioPalette::LiquidGlass;
+    let material_key = MaterialKey {
+        tint: material.tint.map(|tint| tint.on(backdrop)),
+        ..material
+    };
+    let translucent = glass || backdrop != Backdrop::Solid && material.transparency;
+    let mut palette = Palette::for_material(material_key, translucent);
     // DWM's caption and dark-mode flags follow the text the tint chose.
     let caption_dark = palette.text.r > 0.5;
     unsafe {
@@ -285,7 +333,7 @@ pub fn apply_backdrop(
         let _ = set(DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND.0);
         let _ = set(DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE as i32);
         let accent = persistent && backdrop == Backdrop::Acrylic && translucent;
-        let material = if !translucent || accent {
+        let material = if glass || !translucent || accent {
             DWMSBT_NONE
         } else {
             match backdrop {
@@ -329,9 +377,28 @@ pub fn apply_backdrop(
         if !persistent {
             let _ = windows::Win32::Graphics::Gdi::SetWindowRgn(hwnd, None, false);
         }
-        let composition = composition_accent(hwnd, if accent { Accent::Blur } else { Accent::Off }, &palette);
-        if !system || accent && !composition {
-            palette = Palette::with_tint(dark, false, tint);
+        let configure_alpha = |enabled: bool| {
+            DwmEnableBlurBehindWindow(
+                hwnd,
+                &DWM_BLURBEHIND {
+                    dwFlags: DWM_BB_ENABLE,
+                    fEnable: enabled.into(),
+                    ..Default::default()
+                },
+            )
+        };
+        let applied = if glass {
+            let _ = composition_accent(hwnd, Accent::Off, &palette);
+            // Modern DWM uses this flag for per-pixel window composition.
+            // The live scene shows through the render target's alpha.
+            configure_alpha(true).is_ok()
+        } else {
+            let _ = configure_alpha(false);
+            let composition = composition_accent(hwnd, if accent { Accent::Blur } else { Accent::Off }, &palette);
+            system && (!accent || composition)
+        };
+        if !applied {
+            palette = Palette::for_material(material_key, false);
         }
     }
     palette
@@ -341,20 +408,27 @@ pub fn apply_backdrop(
 /// acrylic blurs again on every resize, so motion uses a flat color. A dock
 /// color keeps its strength through the motion, without the blur, so the
 /// surface does not turn solid and back.
-pub fn apply_moving_backdrop(
-    hwnd: windows::Win32::Foundation::HWND,
-    dark: bool,
-    backdrop: crate::config::Backdrop,
-    tint: Option<Tint>,
-) -> Palette {
-    use crate::config::Backdrop;
-    let solid = apply_backdrop(hwnd, dark, Backdrop::Solid, true, tint);
-    let Some(tint) = tint.filter(|tint| {
-        backdrop == Backdrop::Acrylic && tint.alpha.unwrap_or(Tint::DEFAULT_ALPHA) < 1.0 && transparency_available()
+pub fn apply_moving_backdrop(hwnd: windows::Win32::Foundation::HWND, material: MaterialKey) -> Palette {
+    let mut solid = apply_backdrop(
+        hwnd,
+        MaterialKey {
+            backdrop: Backdrop::Solid,
+            ..material
+        },
+        true,
+    );
+    solid.glass = None;
+    if material.palette == PortfolioPalette::LiquidGlass {
+        return solid;
+    }
+    let Some(_) = material.tint.filter(|tint| {
+        material.backdrop == Backdrop::Acrylic
+            && tint.alpha.unwrap_or(Tint::DEFAULT_ALPHA) < 1.0
+            && material.transparency
     }) else {
         return solid;
     };
-    let palette = Palette::with_tint(dark, true, Some(tint));
+    let palette = Palette::for_material(material, true);
     if composition_accent(hwnd, Accent::Tint, &palette) {
         palette
     } else {
@@ -367,7 +441,8 @@ pub fn paint_background(
     rt: &windows::Win32::Graphics::Direct2D::ID2D1HwndRenderTarget,
     brush: &windows::Win32::Graphics::Direct2D::ID2D1SolidColorBrush,
     palette: &Palette,
-    _radius: f32,
+    radius: f32,
+    glass: &mut glass::Cache,
 ) {
     let size = unsafe { rt.GetSize() };
     let (width, height) = (size.width, size.height);
@@ -378,6 +453,9 @@ pub fn paint_background(
         // a second rounded alpha mask exposes the theme acrylic between the
         // independently rasterized curves, especially with an opaque tint.
         rt.Clear(Some(&palette.background));
+        if glass.paint(rt, palette.glass, radius) {
+            return;
+        }
         let (mut dpi, mut dpi_y) = (96.0, 96.0);
         rt.GetDpi(&mut dpi, &mut dpi_y);
         let pixel = 96.0 / dpi;
@@ -520,11 +598,33 @@ mod tests {
 
 /// The material inputs whose changes require DWM calls.
 #[derive(Clone, Copy, PartialEq)]
-pub struct MaterialKey(pub bool, pub crate::config::Backdrop, pub Option<Tint>, pub bool);
+pub struct MaterialKey {
+    dark: bool,
+    backdrop: Backdrop,
+    tint: Option<Tint>,
+    palette: PortfolioPalette,
+    glass: [u8; 5],
+    transparency: bool,
+}
 
 impl MaterialKey {
-    pub fn new(dark: bool, backdrop: crate::config::Backdrop, tint: Option<Tint>) -> Self {
-        Self(dark, backdrop, tint, transparency_available())
+    pub fn new(dark: bool, config: &Config) -> Self {
+        let glass = config.palette == PortfolioPalette::LiquidGlass;
+        Self {
+            dark,
+            backdrop: if glass { Backdrop::Solid } else { config.backdrop },
+            tint: if glass { None } else { config.dock_tint() },
+            palette: config.palette,
+            glass: if glass { config.glass } else { [0; 5] },
+            transparency: transparency_available(),
+        }
+    }
+
+    pub fn refreshed(self) -> Self {
+        Self {
+            transparency: transparency_available(),
+            ..self
+        }
     }
 }
 

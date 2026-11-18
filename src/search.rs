@@ -21,6 +21,7 @@ pub enum Kind {
     File,
     Folder,
     Calc,
+    Emoji,
     Url,
     Shell,
     Web,
@@ -33,7 +34,7 @@ impl Kind {
     pub fn verb(self) -> &'static str {
         match self {
             Kind::App | Kind::File | Kind::Folder | Kind::Url => "Open",
-            Kind::Calc => "Copy",
+            Kind::Calc | Kind::Emoji => "Copy",
             Kind::Shell => "Run",
             Kind::Web => "Search",
             Kind::Command => "Run",
@@ -55,6 +56,7 @@ pub enum Action {
         command: String,
         admin: bool,
     },
+    Terminal(String),
     Reveal(String),
     Command(Command),
     /// Opens the surface at this index in the surface library.
@@ -209,6 +211,9 @@ impl<'a> FileScope<'a> {
     /// `results` are the query's results without files. A query that already
     /// produced a calculator, URL or command result does not search files.
     pub fn of(query: &'a str, results: &[ResultItem]) -> FileScope<'a> {
+        if is_shortcut_query(query) {
+            return FileScope::None;
+        }
         let query = query.trim();
         if let Some(rest) = query.strip_prefix('?') {
             let rest = rest.trim();
@@ -267,6 +272,18 @@ pub struct Searcher {
     names: NameMatcher,
 }
 
+fn terminal_input(query: &str) -> Option<&str> {
+    let input = query.trim_start().strip_prefix('$')?;
+    if input.starts_with(char::is_whitespace) {
+        return None;
+    }
+    Some(input.trim_end())
+}
+
+pub fn is_shortcut_query(query: &str) -> bool {
+    query.trim_start().starts_with(':') || terminal_input(query).is_some()
+}
+
 impl Searcher {
     pub fn new() -> Self {
         Self {
@@ -275,6 +292,21 @@ impl Searcher {
     }
 
     pub fn search(&mut self, query: &str, apps: &[AppEntry], history: &History, config: &Config) -> Vec<ResultItem> {
+        if let Some(query) = query.trim_start().strip_prefix(':') {
+            return crate::emoji::search(query);
+        }
+        if let Some(command) = terminal_input(query) {
+            return vec![if command.is_empty() {
+                ResultItem::new(Kind::Shell, "Type a command after $", "Command Prompt", Action::None)
+            } else {
+                ResultItem::new(
+                    Kind::Shell,
+                    command,
+                    "Command Prompt",
+                    Action::Terminal(command.to_owned()),
+                )
+            }];
+        }
         let query = query.trim();
         let now = util::now_secs();
         let mut results = Vec::new();
@@ -384,6 +416,28 @@ impl Searcher {
             Action::Open(config.search_url.replace("{query}", &url_encode(query))),
         ));
         results
+    }
+}
+
+#[cfg(test)]
+mod shortcut_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_prefix_requires_a_command_without_an_initial_space() {
+        let mut searcher = Searcher::new();
+        let config = Config::default();
+        let history = History::default();
+        let command = r#"echo "one two" & echo three"#;
+        let items = searcher.search(&format!("{}{command}", '$'), &[], &history, &config);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].action, Action::Terminal(command.to_string()));
+        assert_eq!(searcher.search("$", &[], &history, &config)[0].action, Action::None);
+        assert!(!is_shortcut_query("$ echo hello"));
+        assert!(!is_shortcut_query("$ "));
+        assert_eq!(FileScope::of(":no matches", &[]), FileScope::None);
+        assert!(matches!(FileScope::of("$ echo", &[]), FileScope::Mixed(_)));
+        assert!(matches!(FileScope::of("?folder", &[]), FileScope::Only("folder")));
     }
 }
 

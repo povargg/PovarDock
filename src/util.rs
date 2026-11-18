@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
-use windows::core::{HSTRING, w};
+use windows::core::HSTRING;
 
 /// Creates `%APPDATA%\wisp` when first needed.
 pub fn data_dir() -> PathBuf {
@@ -46,6 +46,11 @@ pub fn copy_wide(dst: &mut [u16], s: &str) {
 
 pub fn error_box(message: &str) {
     unsafe {
-        MessageBoxW(None, &HSTRING::from(message), w!("Wisp"), MB_OK | MB_ICONERROR);
+        MessageBoxW(
+            None,
+            &HSTRING::from(message),
+            &HSTRING::from(crate::channel::NAME),
+            MB_OK | MB_ICONERROR,
+        );
     }
 }

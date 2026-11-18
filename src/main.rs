@@ -11,11 +11,15 @@ mod dock;
 mod drag;
 mod ease;
 mod editor;
+mod emoji;
 mod files;
+mod glass;
 mod history;
 mod hotkey;
 mod indexer;
 mod panic_log;
+#[allow(dead_code)]
+mod portfolio;
 mod win_key;
 // Settings also uses package-manager detection and update instructions.
 #[allow(dead_code)]
@@ -37,10 +41,14 @@ mod util;
 
 fn main() {
     panic_log::install();
+    if std::env::args_os().nth(1).is_some_and(|arg| arg == "--settings") {
+        wisp_settings::run(true);
+        return;
+    }
     if taskbar::dispatch_watchdog() {
         return;
     }
     if let Err(e) = app::run() {
-        util::error_box(&format!("Wisp could not start:\n{}", e.message()));
+        util::error_box(&format!("{} could not start:\n{}", channel::NAME, e.message()));
     }
 }

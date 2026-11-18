@@ -17,8 +17,12 @@ mod drag;
 mod ease;
 #[path = "../src/editor.rs"]
 mod editor;
+#[path = "../src/emoji.rs"]
+mod emoji;
 #[path = "../src/files.rs"]
 mod files;
+#[path = "../src/glass.rs"]
+mod glass;
 #[path = "../src/history.rs"]
 mod history;
 #[path = "../src/hotkey.rs"]
@@ -33,6 +37,8 @@ mod launch;
 mod messages;
 #[path = "../src/morph.rs"]
 mod morph;
+#[path = "../src/portfolio.rs"]
+mod portfolio;
 #[path = "../src/render.rs"]
 mod render;
 #[path = "../src/screens.rs"]
@@ -60,11 +66,13 @@ mod win_key;
 mod channel {
     use windows::core::{PCWSTR, w};
     pub const NIGHTLY: bool = true;
-    pub const NAME: &str = "Wisp capture";
+    pub const NAME: &str = "Windock capture";
     pub const DATA_DIR: &str = "wisp-demo";
     pub const LAUNCHER_CLASS: PCWSTR = w!("Wisp.Capture.Launcher");
     pub const INSTANCE_MUTEX: PCWSTR = w!("Local\\Wisp.Capture.SingleInstance");
     pub const RUN_VALUE: PCWSTR = w!("Wisp capture");
+    pub const SETTINGS_NAME: &str = "Windock Settings";
+    pub const WELCOME_NAME: &str = "Welcome to Windock";
 }
 fn main() {
     if let Err(e) = app::run() {

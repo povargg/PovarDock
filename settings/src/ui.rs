@@ -1,6 +1,7 @@
 //! The settings window: a sidebar of pages. `--welcome` shows the one-time
 //! onboarding instead.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,10 +20,11 @@ use crate::{
     config::{self, Config, Store},
     hotkey,
     palette::{self, Palette},
+    portfolio::{GLASS_CONTROLS, PortfolioPalette},
     screens, system, update,
 };
 
-const ICON_SVG: &[u8] = include_bytes!("../../assets/icon.svg");
+const APP_ICON: &[u8] = include_bytes!("../../assets/windock.png");
 
 /// Config values and the labels the dropdowns show for them.
 const THEMES: [(&str, &str); 3] = [("system", "System"), ("dark", "Dark"), ("light", "Light")];
@@ -83,12 +85,13 @@ enum Updates {
     Latest,
     Available(update::Release),
     Installing,
-    Installed(String),
+    Installed { version: String, executable: PathBuf },
     Failed(String),
 }
 
 pub struct Settings {
     store: Option<Store>,
+    embedded: bool,
     config: Config,
     error: Option<String>,
     shortcut_error: Option<String>,
@@ -101,6 +104,8 @@ pub struct Settings {
     url: Entity<InputState>,
     folder: Entity<InputState>,
     theme: Entity<Choices>,
+    color_palette: Entity<Choices>,
+    glass: [Entity<SliderState>; 5],
     backdrop: Entity<Choices>,
     window_list: Entity<Choices>,
     dock_screen: Entity<SelectState<SearchableVec<SharedString>>>,
@@ -203,12 +208,19 @@ fn index_of(choices: &[(&str, &str)], value: &str) -> Option<IndexPath> {
     choices.iter().position(|(v, _)| *v == value).map(IndexPath::new)
 }
 
+fn palette_index(palette: PortfolioPalette) -> Option<IndexPath> {
+    PortfolioPalette::CHOICES
+        .iter()
+        .position(|&(choice, _, _)| choice == palette)
+        .map(IndexPath::new)
+}
+
 fn value_of(choices: &[(&'static str, &'static str)], label: &str) -> Option<&'static str> {
     choices.iter().find(|(_, l)| *l == label).map(|(v, _)| *v)
 }
 
 impl Settings {
-    pub fn new(welcome: bool, page: Option<&str>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(welcome: bool, page: Option<&str>, embedded: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (store, config, error) = match config::path() {
             Ok(path) => {
                 let store = Store::new(path);
@@ -234,6 +246,23 @@ impl Settings {
                 window,
                 cx,
             )
+        });
+        let color_palette = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(PortfolioPalette::CHOICES.map(|(_, _, name)| name)),
+                palette_index(config.palette),
+                window,
+                cx,
+            )
+        });
+        let glass = std::array::from_fn(|index| {
+            cx.new(|_| {
+                SliderState::new()
+                    .min(0.)
+                    .max(GLASS_CONTROLS[index].2 as f32)
+                    .step(1.)
+                    .default_value(config.glass[index] as f32)
+            })
         });
         let backdrop = cx.new(|cx| {
             SelectState::new(
@@ -334,6 +363,26 @@ impl Settings {
             }
         })
         .detach();
+        cx.subscribe_in(&color_palette, window, |this, _, event, window, cx| {
+            if let SelectEvent::Confirm(Some(label)) = event
+                && let Some(&(_, key, _)) = PortfolioPalette::CHOICES.iter().find(|&&(_, _, name)| name == *label)
+            {
+                this.save("palette", key.into(), window, cx);
+            }
+        })
+        .detach();
+        for (index, slider) in glass.iter().enumerate() {
+            let (key, _, max, _) = GLASS_CONTROLS[index];
+            cx.subscribe_in(slider, window, move |this, _, event, window, cx| {
+                if let SliderEvent::Change(value) = event {
+                    let value = (value.start().round() as i64).clamp(0, max);
+                    if value != this.config.glass[index] {
+                        this.save(key, value.into(), window, cx);
+                    }
+                }
+            })
+            .detach();
+        }
         cx.subscribe_in(&backdrop, window, |this, _, event, window, cx| {
             if let SelectEvent::Confirm(Some(label)) = event
                 && let Some(value) = value_of(&BACKDROPS, label)
@@ -395,6 +444,7 @@ impl Settings {
         let mut this = Self {
             pinned_count: Self::pinned_count(),
             store,
+            embedded,
             shortcut_error: hotkey::parse(&config.hotkey).err(),
             url_error: config::validate_url(&config.search_url).err(),
             config,
@@ -409,6 +459,8 @@ impl Settings {
             url,
             folder,
             theme,
+            color_palette,
+            glass,
             backdrop,
             window_list,
             dock_screen,
@@ -425,12 +477,12 @@ impl Settings {
             powertoys: system::powertoys_run_enabled(),
             recording: false,
             focus,
-            icon: Arc::new(Image::from_bytes(ImageFormat::Svg, ICON_SVG.to_vec())),
+            icon: Arc::new(Image::from_bytes(ImageFormat::Png, APP_ICON.to_vec())),
             updates: Updates::Idle,
         };
         this.apply_theme(window, cx);
         this.show_dock_color(window, cx);
-        if !welcome {
+        if !welcome && this.config.check_for_updates && !crate::channel::NIGHTLY {
             this.check_updates(false, cx);
         }
         this
@@ -581,19 +633,20 @@ impl Settings {
             "light" => Theme::change(ThemeMode::Light, Some(window), cx),
             _ => Theme::sync_system_appearance(Some(window), cx),
         }
-        palette::apply(cx);
+        palette::apply(self.config.palette, cx);
         let dark = Theme::global(cx).mode.is_dark();
-        let (background, text) = if dark {
-            (0x000000, 0xf5f5f5)
-        } else {
-            (0xfaf9f6, 0x111111)
-        };
+        let (background, text) = self.config.palette.colors(dark).map_or(
+            if dark {
+                (0x000000, 0xf5f5f5)
+            } else {
+                (0xfaf9f6, 0x111111)
+            },
+            |colors| (colors.surface, colors.ink),
+        );
         let title = if self.onboarding.is_some() {
-            "Welcome to Wisp"
-        } else if crate::channel::NIGHTLY {
-            "Wisp Nightly Settings"
+            crate::channel::WELCOME_NAME
         } else {
-            "Wisp Settings"
+            crate::channel::SETTINGS_NAME
         };
         system::style_title_bar(title, dark, background, text);
     }
@@ -663,6 +716,12 @@ impl Settings {
                 let theme = index_of(&THEMES, &self.config.theme);
                 self.theme
                     .update(cx, |state, cx| state.set_selected_index(theme, window, cx));
+                let selected = palette_index(self.config.palette);
+                self.color_palette
+                    .update(cx, |state, cx| state.set_selected_index(selected, window, cx));
+                for (slider, value) in self.glass.iter().zip(self.config.glass) {
+                    slider.update(cx, |state, cx| state.set_value(value as f32, window, cx));
+                }
                 let backdrop = index_of(&BACKDROPS, &self.config.backdrop);
                 self.backdrop
                     .update(cx, |state, cx| state.set_selected_index(backdrop, window, cx));
@@ -739,7 +798,7 @@ impl Settings {
     }
 
     fn set_autostart(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        match system::set_autostart(enabled) {
+        match system::set_autostart(enabled, self.embedded) {
             Ok(()) => self.autostart = enabled,
             Err(error) => self.error = Some(error),
         }
@@ -786,7 +845,7 @@ impl Settings {
     }
 
     fn install_update(&mut self, cx: &mut Context<Self>) {
-        if crate::install::current_manager().is_some() {
+        if !self.embedded || crate::install::current_manager().is_some() {
             return;
         }
         let Updates::Available(release) = &self.updates else {
@@ -803,7 +862,7 @@ impl Settings {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.updates = match result {
-                    Ok(()) => Updates::Installed(version),
+                    Ok(executable) => Updates::Installed { version, executable },
                     Err(error) => Updates::Failed(error),
                 };
                 cx.notify();
@@ -828,7 +887,7 @@ impl Settings {
             Updates::Available(release) => {
                 let page = release.page.clone();
                 (
-                    format!("Wisp {} is available.", release.version()).into(),
+                    format!("WinDock {} is available.", release.version()).into(),
                     h_flex()
                         .gap_2()
                         .child(
@@ -837,7 +896,7 @@ impl Settings {
                                 .label("What's new")
                                 .on_click(move |_, _, cx| cx.open_url(&page)),
                         )
-                        .children(manager.is_none().then(|| {
+                        .children((manager.is_none() && self.embedded).then(|| {
                             Button::new("install-update")
                                 .primary()
                                 .label("Update")
@@ -846,21 +905,26 @@ impl Settings {
                         .into_any_element(),
                 )
             }
-            Updates::Installing => ("Wisp restarts when it is done.".into(), busy("Updating…")),
-            Updates::Installed(version) => (
-                format!("Wisp {version} is installed.").into(),
-                Button::new("restart-settings")
-                    .primary()
-                    .label("Restart Settings")
-                    .on_click(cx.listener(|this, _, _, cx| match update::restart_settings() {
-                        Ok(()) => cx.quit(),
-                        Err(error) => {
-                            this.updates = Updates::Failed(error);
-                            cx.notify();
-                        }
-                    }))
-                    .into_any_element(),
-            ),
+            Updates::Installing => ("WinDock restarts when it is done.".into(), busy("Updating…")),
+            Updates::Installed { version, executable } => {
+                let executable = executable.clone();
+                (
+                    format!("WinDock {version} is installed.").into(),
+                    Button::new("restart-settings")
+                        .primary()
+                        .label("Restart Settings")
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| match update::restart_settings(&executable) {
+                                Ok(()) => cx.quit(),
+                                Err(error) => {
+                                    this.updates = Updates::Failed(error);
+                                    cx.notify();
+                                }
+                            }),
+                        )
+                        .into_any_element(),
+                )
+            }
             Updates::Failed(_) => ("".into(), check("Try again", cx)),
         };
         let error = match &self.updates {
@@ -898,7 +962,7 @@ impl Settings {
                 .text_color(p.muted)
                 .hover(|s| s.bg(p.surface).text_color(p.fg))
                 .child(div().size(px(6.)).rounded_full().bg(p.accent))
-                .child(format!("Wisp {} is available", release.version()))
+                .child(format!("Wisp upstream {} is available", release.version()))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.page = Page::About;
                     this.recording = false;
@@ -1056,7 +1120,7 @@ impl Settings {
     fn win_key_row(&self, p: Palette, cx: &mut Context<Self>) -> Div {
         row(
             "Use Win key",
-            "Tap the Windows key alone to open Wisp instead of Start.",
+            "Tap the Windows key alone to open Windock instead of Start.",
             Switch::new("win-key")
                 .checked(self.config.win_key)
                 .accessibility_label("Use Win key")
@@ -1166,7 +1230,7 @@ impl Settings {
                     .child(divider(p))
                     .child(row(
                         "Hide the taskbar",
-                        "The taskbar comes back when Wisp quits.",
+                        "The taskbar comes back when Windock quits.",
                         Switch::new("hide-taskbar")
                             .checked(self.config.hide_taskbar)
                             .accessibility_label("Hide the taskbar")
@@ -1192,6 +1256,9 @@ impl Settings {
             .child(div().h_3())
             .child(label("Status", p))
             .child(self.status_controls(p, cx))
+            .child(div().h_3())
+            .child(label("Dock order", p))
+            .child(self.dock_order(p, cx))
             .child(div().h_3())
             .child(label("Updates", p))
             .child(
@@ -1219,21 +1286,31 @@ impl Settings {
 
     fn appearance(&self, p: Palette, cx: &mut Context<Self>) -> AnyElement {
         let advanced_open = self.advanced_open;
+        let glass = self.config.palette == PortfolioPalette::LiquidGlass;
         v_flex()
             .gap_2()
             .child(label("Look", p))
             .child(
                 group(p)
                     .child(row(
-                        "Theme",
+                        "Color mode",
                         "",
-                        Select::new(&self.theme).accessibility_label("Theme").w(px(160.)),
+                        Select::new(&self.theme).accessibility_label("Color mode").w(px(160.)),
+                        p,
+                    ))
+                    .child(divider(p))
+                    .child(row(
+                        "Palette",
+                        "",
+                        Select::new(&self.color_palette)
+                            .accessibility_label("Palette")
+                            .w(px(160.)),
                         p,
                     ))
                     .child(divider(p))
                     .child(row(
                         "Backdrop",
-                        "Acrylic and Mica blur what is behind the launcher and fade in. Solid appears at once.",
+                        "Used by the color palettes.",
                         Select::new(&self.backdrop).accessibility_label("Backdrop").w(px(160.)),
                         p,
                     ))
@@ -1264,6 +1341,16 @@ impl Settings {
                     )
                     .when(advanced_open, |group| group.child(self.advanced_rows(p, cx))),
             )
+            .when(glass, |page| {
+                page.child(div().h_3())
+                    .child(label("Liquid Glass", p))
+                    .child(
+                        group(p).children(GLASS_CONTROLS.iter().enumerate().map(|(index, &(_, title, _, _))| {
+                            item(title, format!("{}%", self.config.glass[index]), p)
+                                .child(Slider::new(&self.glass[index]).accessibility_label(title))
+                        })),
+                    )
+            })
             .child(div().h_3())
             .child(label("Results", p))
             .child(
@@ -1273,6 +1360,42 @@ impl Settings {
                 ),
             )
             .into_any_element()
+    }
+
+    fn dock_order(&self, p: Palette, cx: &mut Context<Self>) -> Div {
+        use config::order::{Section, move_section};
+        group(p).children(self.config.dock_order.into_iter().enumerate().map(|(index, section)| {
+            let name = match section {
+                Section::Launcher => "Search button",
+                Section::Apps => "Apps",
+                Section::Tray => "Notification area",
+                Section::Status => "Status group",
+                Section::Clock => "Clock and controls",
+                Section::Icon(item) => item.name(),
+            };
+            let buttons =
+                h_flex()
+                    .gap_2()
+                    .children([(-1, "↑", "left"), (1, "↓", "right")].map(|(delta, arrow, direction)| {
+                        let target = index
+                            .checked_add_signed(delta)
+                            .and_then(|index| self.config.dock_order.get(index).copied());
+                        Button::new((section.name(), usize::from(delta > 0)))
+                            .small()
+                            .label(arrow)
+                            .accessibility_label(format!("Move {name} {direction}"))
+                            .disabled(target.is_none())
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                if let Some(target) = target {
+                                    let mut order = this.config.dock_order;
+                                    move_section(&mut order, section, target);
+                                    let value: Array = order.iter().map(|section| section.name()).collect();
+                                    this.save("dock_order", value.into(), window, cx);
+                                }
+                            }))
+                    }));
+            row(name, "", buttons, p)
+        }))
     }
 
     fn search(&self, p: Palette, cx: &mut Context<Self>) -> AnyElement {
@@ -1318,7 +1441,7 @@ impl Settings {
                     ))
                     .child(divider(p))
                     .child(
-                        item("Web search URL", "Wisp replaces {query} with your search text.", p)
+                        item("Web search URL", "Windock replaces {query} with your search text.", p)
                             .child(Input::new(&self.url).aria_label("Web search URL"))
                             .children(self.url_error.as_ref().map(|e| error_text(e, p))),
                     ),
@@ -1385,7 +1508,12 @@ impl Settings {
                     .child(img(self.icon.clone()).size(px(40.)))
                     .child(
                         v_flex()
-                            .child(div().text_base().font_weight(FontWeight::SEMIBOLD).child("Wisp"))
+                            .child(
+                                div()
+                                    .text_base()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(crate::channel::NAME),
+                            )
                             .child(hint(format!("Version {}", env!("CARGO_PKG_VERSION")), p)),
                     ),
             )
@@ -1402,11 +1530,11 @@ impl Settings {
                     ))
                     .child(divider(p))
                     .child(row(
-                        "Source code",
-                        "github.com/SumirSeth/wisp",
+                        "WinDock on GitHub",
+                        "github.com/povargg/WinDock",
                         Button::new("github")
                             .label("Open")
-                            .on_click(|_, _, cx| cx.open_url("https://github.com/SumirSeth/wisp")),
+                            .on_click(|_, _, cx| cx.open_url(crate::REPOSITORY_URL)),
                         p,
                     )),
             )
@@ -1456,7 +1584,12 @@ impl Settings {
                             .px_2()
                             .pb_4()
                             .child(img(self.icon.clone()).size(px(22.)))
-                            .child(div().text_base().font_weight(FontWeight::SEMIBOLD).child("wisp")),
+                            .child(
+                                div()
+                                    .text_base()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(crate::channel::NAME),
+                            ),
                     )
                     .children(
                         Page::ALL
@@ -1495,7 +1628,7 @@ impl Settings {
             .child(self.win_key_row(p, cx));
         let (title, body): (&str, Div) = match step {
             0 => (
-                "Welcome to Wisp",
+                crate::channel::WELCOME_NAME,
                 v_flex()
                     .gap_4()
                     .child(
@@ -1521,7 +1654,7 @@ impl Settings {
                         p,
                     )))
                     .child(hint(
-                        "To change settings later, right-click the Wisp icon in the notification area and select Settings. With the dock, the icon is behind the ⌄ button.",
+                        "Open Settings with the gear beside the clock or from the Windock tray icon.",
                         p,
                     )),
             ),
@@ -1591,7 +1724,7 @@ impl Settings {
 
 impl Render for Settings {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = Palette::current(cx);
+        let p = Palette::current(cx, self.config.palette);
         let content = match self.onboarding {
             Some(step) => self.onboarding_view(step, p, cx),
             None => self.settings_view(p, cx),

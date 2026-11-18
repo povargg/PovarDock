@@ -4,8 +4,9 @@
 use windows::core::{PCWSTR, w};
 
 pub const NIGHTLY: bool = cfg!(feature = "nightly");
-pub const NAME: &str = if NIGHTLY { "Wisp Nightly" } else { "Wisp" };
-/// Folder under `%APPDATA%`.
+pub const NAME: &str = if NIGHTLY { "WinDock Nightly" } else { "WinDock" };
+pub const WELCOME_NAME: &str = "Welcome to WinDock";
+/// Keep the existing folder under `%APPDATA%` so upgrades retain config and pins.
 pub const DATA_DIR: &str = if NIGHTLY { "wisp-nightly" } else { "wisp" };
 pub const LAUNCHER_CLASS: PCWSTR = if NIGHTLY {
     w!("Wisp.Nightly.Launcher")
@@ -19,3 +20,8 @@ pub const INSTANCE_MUTEX: PCWSTR = if NIGHTLY {
 };
 /// Value name under the Run key for Start with Windows.
 pub const RUN_VALUE: PCWSTR = if NIGHTLY { w!("Wisp Nightly") } else { w!("Wisp") };
+pub const SETTINGS_NAME: &str = if NIGHTLY {
+    "WinDock Nightly Settings"
+} else {
+    "WinDock Settings"
+};

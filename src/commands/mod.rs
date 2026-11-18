@@ -363,7 +363,7 @@ pub fn search(query: &str, state: &State) -> Vec<ResultItem> {
     items.extend(volume_items(&words, state.audio.as_ref()));
     items.extend(media_items(&words, state.media.as_ref()));
     items.extend(power_items(&query));
-    items.extend(wisp_settings_item(&query));
+    items.extend(app_settings_item(&query));
     items.extend(quit_item(&query));
     items.extend(time_items(&words));
     for (title, link) in settings::find(&query) {
@@ -667,24 +667,22 @@ fn power_items_with_capability(query: &str, can_hibernate: bool) -> Vec<ResultIt
         .collect()
 }
 
-/// Wisp's own Settings, for `wisp`, `settings` or `wisp settings`, so they
-/// don't need the tray icon, which is hidden with the taskbar.
-fn wisp_settings_item(query: &str) -> Option<ResultItem> {
-    let name = crate::channel::NAME.to_lowercase();
+/// Settings stay reachable when the taskbar and tray icon are hidden.
+fn app_settings_item(query: &str) -> Option<ResultItem> {
     let matches = query.chars().count() >= 3
         && [
             "wisp",
             "wisp settings",
+            "windock",
+            "windock settings",
             "settings",
             "preferences",
-            &name,
-            &format!("{name} settings"),
         ]
         .iter()
         .any(|keyword| keyword.starts_with(query));
     matches.then(|| {
         row(
-            format!("{} Settings", crate::channel::NAME),
+            crate::channel::SETTINGS_NAME,
             "Theme, shortcut, dock and more",
             Action::Command(Command::WispSettings),
         )
@@ -697,9 +695,12 @@ fn wisp_settings_item(query: &str) -> Option<ResultItem> {
 fn quit_item(query: &str) -> Option<ResultItem> {
     let name = crate::channel::NAME.to_lowercase();
     let matches = query.chars().count() >= 3
-        && ["quit", "exit"]
-            .iter()
-            .any(|verb| verb.starts_with(query) || format!("{verb} {name}").starts_with(query));
+        && ["quit", "exit"].iter().any(|verb| {
+            verb.starts_with(query)
+                || ["windock", "wisp", name.as_str()]
+                    .iter()
+                    .any(|app| format!("{verb} {app}").starts_with(query))
+        });
     matches.then(|| {
         let title = format!("Quit {}", crate::channel::NAME);
         row(
@@ -1108,14 +1109,17 @@ mod tests {
         assert_eq!(titles("restart", &state), ["Restart"]);
         assert_eq!(titles("shut", &state), ["Shut down"]);
         assert!(titles("re", &state).is_empty());
-        assert_eq!(titles("quit", &state), ["Quit Wisp"]);
-        assert_eq!(titles("exit wi", &state), ["Quit Wisp"]);
-        let settings = format!("{} Settings", crate::channel::NAME);
+        let quit = format!("Quit {}", crate::channel::NAME);
+        assert_eq!(titles("quit", &state), std::slice::from_ref(&quit));
+        assert_eq!(titles("exit windock", &state), [quit]);
+        let settings = crate::channel::SETTINGS_NAME.to_string();
         for query in [
             "wisp",
             "wis",
             "wisp settings",
             "wisp set",
+            "windock",
+            "windock settings",
             "settings",
             "sett",
             "preferences",

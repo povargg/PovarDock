@@ -4,6 +4,12 @@ User-facing changes in each release. Each release on GitHub lists these notes an
 
 ## Unreleased
 
+## 0.9.0 - 2026-11-18
+
+- First WinDock release with a customized dock, additional themes, emoji search, and a dedicated power menu.
+- Liquid Glass reaches 98% opacity at the minimum transparency setting.
+- The portable executable checks this repository for updates and validates each download with SHA-256.
+
 ## 0.8.1 - 2026-11-17
 
 ### Fixes

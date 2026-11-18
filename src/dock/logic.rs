@@ -466,75 +466,9 @@ pub fn move_item<T>(items: &mut Vec<T>, from: usize, to: usize) {
     }
 }
 
-/// Blocks in the dock's saved row order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Section {
-    Launcher,
-    Apps,
-    Tray,
-    Status,
-    Icon(StatusItem),
-    Clock,
-}
-
-pub const DEFAULT_ORDER: [Section; 9] = [
-    Section::Launcher,
-    Section::Apps,
-    Section::Tray,
-    Section::Status,
-    Section::Icon(StatusItem::Sound),
-    Section::Icon(StatusItem::Battery),
-    Section::Icon(StatusItem::Wifi),
-    Section::Icon(StatusItem::Bluetooth),
-    Section::Clock,
-];
-
-impl Section {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Launcher => "launcher",
-            Self::Apps => "apps",
-            Self::Tray => "tray",
-            Self::Status => "status",
-            Self::Icon(item) => item.name(),
-            Self::Clock => "clock",
-        }
-    }
-}
-
-/// Unknown and duplicate names disappear. An omitted block goes after the block
-/// it follows by default, so a section added in a later version starts in its usual place.
-pub fn section_order<'a>(names: impl IntoIterator<Item = &'a str>) -> [Section; 9] {
-    let mut order = Vec::with_capacity(9);
-    for section in names
-        .into_iter()
-        .filter_map(|name| DEFAULT_ORDER.into_iter().find(|section| section.name() == name))
-    {
-        if !order.contains(&section) {
-            order.push(section);
-        }
-    }
-    for (i, section) in DEFAULT_ORDER.into_iter().enumerate() {
-        if !order.contains(&section) {
-            let at = match i {
-                0 => 0,
-                _ => order.iter().position(|&item| item == DEFAULT_ORDER[i - 1]).unwrap() + 1,
-            };
-            order.insert(at, section);
-        }
-    }
-    order.try_into().unwrap()
-}
-
-pub fn move_section(order: &mut [Section; 9], section: Section, target: Section) {
-    let from = order.iter().position(|&item| item == section).unwrap();
-    let to = order.iter().position(|&item| item == target).unwrap();
-    if from < to {
-        order[from..=to].rotate_left(1);
-    } else {
-        order[to..=from].rotate_right(1);
-    }
-}
+#[path = "order.rs"]
+mod order;
+pub use order::*;
 
 /// One padded row, with section gaps only outside adjacent own-icon clusters.
 #[derive(Clone, Copy)]
@@ -574,7 +508,7 @@ impl RowLayout {
                         0.0
                     }
                 }
-                Section::Clock => CLOCK_W,
+                Section::Clock => CLOCK_W + SETTINGS_W + POWER_W,
             } * scale;
             if width == 0.0 {
                 return None;
@@ -631,6 +565,8 @@ impl RowLayout {
             Part::Status => (Section::Status, 0.0),
             Part::Icon(item) => (Section::Icon(item), 0.0),
             Part::Clock => (Section::Clock, 0.0),
+            Part::Settings => (Section::Clock, CLOCK_W),
+            Part::Power => (Section::Clock, CLOCK_W + SETTINGS_W),
         };
         self.section_left(section, scale).map(|left| left + offset * scale)
     }
@@ -741,6 +677,8 @@ pub fn status_cells(group: [bool; 4]) -> Vec<(StatusItem, f32, f32, f32)> {
     cells
 }
 pub const CLOCK_W: f32 = 88.0;
+pub const SETTINGS_W: f32 = 34.0;
+pub const POWER_W: f32 = 34.0;
 /// The window list above an app icon: its padding, one row per window, and
 /// the widest a row may be before it is clipped, in DIPs.
 pub const LIST_PAD: (f32, f32) = (7.0, 3.0);
@@ -777,6 +715,8 @@ pub enum Part {
     Status,
     Icon(StatusItem),
     Clock,
+    Settings,
+    Power,
 }
 
 impl Part {
@@ -787,6 +727,8 @@ impl Part {
             Part::Status => STATUS_W,
             Part::Icon(_) => OWN_ICON_W,
             Part::Clock => CLOCK_W,
+            Part::Settings => SETTINGS_W,
+            Part::Power => POWER_W,
         }
     }
 
@@ -798,7 +740,10 @@ impl Part {
 /// The tray, fixed status matrix and clock, in order.
 pub fn parts(tray: Option<usize>) -> Vec<Part> {
     let tray = tray.map(|count| std::iter::once(Part::Chevron).chain((0..count.min(MAX_INLINE)).map(Part::Tray)));
-    tray.into_iter().flatten().chain([Part::Status, Part::Clock]).collect()
+    tray.into_iter()
+        .flatten()
+        .chain([Part::Status, Part::Clock, Part::Settings, Part::Power])
+        .collect()
 }
 
 /// The notification-area flyout: a grid of cells, as in Windows 11.
@@ -1008,7 +953,7 @@ mod tests {
             }
             let clock = row.part_left(Part::Clock, scale).unwrap();
             assert_eq!(clock, end.unwrap() + SEPARATOR * scale);
-            assert_eq!(row.width(scale), clock + (CLOCK_W + PAD) * scale);
+            assert_eq!(row.width(scale), clock + (CLOCK_W + SETTINGS_W + POWER_W + PAD) * scale);
         }
         assert_eq!(own_icon_width(StatusItem::Sound, 0.0), 21.0);
         assert_eq!(own_icon_width(StatusItem::Sound, 34.0), 38.0);
@@ -1129,6 +1074,8 @@ mod tests {
                         (2.0 * PAD
                             + SLOT
                             + CLOCK_W
+                            + SETTINGS_W
+                            + POWER_W
                             + usize::from(mask != 0) as f32 * STATUS_W
                             + own as f32 * OWN_ICON_W
                             + own.saturating_sub(1) as f32 * OWN_INNER_GAP
@@ -1730,7 +1677,15 @@ mod tests {
         let tray = parts(Some(2));
         assert_eq!(
             tray,
-            [Part::Chevron, Part::Tray(0), Part::Tray(1), Part::Status, Part::Clock]
+            [
+                Part::Chevron,
+                Part::Tray(0),
+                Part::Tray(1),
+                Part::Status,
+                Part::Clock,
+                Part::Settings,
+                Part::Power,
+            ]
         );
         let row = RowLayout {
             launcher: true,
@@ -1747,8 +1702,22 @@ mod tests {
         assert_eq!(status, chevron + CHEVRON_W + 2.0 * TRAY_W + SEPARATOR);
         assert_eq!(row.part_hit(status - 1.0, 20.0, &tray, 1.0), None);
         // Inline icons are capped; with none, only the chevron shows.
-        assert_eq!(parts(Some(9)).len(), 1 + MAX_INLINE + 2);
-        assert_eq!(parts(Some(0)), [Part::Chevron, Part::Status, Part::Clock]);
+        assert_eq!(parts(Some(9)).len(), 1 + MAX_INLINE + 4);
+        assert_eq!(
+            parts(Some(0)),
+            [Part::Chevron, Part::Status, Part::Clock, Part::Settings, Part::Power]
+        );
+        let clock = row.part_left(Part::Clock, 1.0).unwrap();
+        assert_eq!(row.part_left(Part::Settings, 1.0), Some(clock + CLOCK_W));
+        assert_eq!(
+            row.part_hit(clock + CLOCK_W + 1.0, 20.0, &tray, 1.0),
+            Some(Part::Settings)
+        );
+        assert_eq!(row.part_left(Part::Power, 1.0), Some(clock + CLOCK_W + SETTINGS_W));
+        assert_eq!(
+            row.part_hit(clock + CLOCK_W + SETTINGS_W + 1.0, 20.0, &tray, 1.0),
+            Some(Part::Power)
+        );
         // Tray icons fit the dock's height budget.
         const { assert!(TRAY_ICON < HEIGHT && TRAY_ICON < TRAY_W) };
     }

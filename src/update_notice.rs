@@ -1,8 +1,9 @@
-//! Small shared update state. TOML keeps JSON and network code out of Wisp.
+//! Update notices shared by the launcher and Settings.
 use std::{io::Write, path::Path};
 
 /// Shared with the settings app, so it's defined here; listed in `messages`.
 pub const MESSAGE: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 9;
+pub const FILE_NAME: &str = "windock-update.toml";
 
 #[derive(Default)]
 pub struct State {
@@ -55,10 +56,15 @@ mod tests {
     #[test]
     fn notice_survives_restarts_and_ignores_old_or_invalid_versions() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("update.toml");
+        let path = dir.path().join(FILE_NAME);
         assert!(!State::load(&path).available());
+        let next_patch = env!("CARGO_PKG_VERSION_PATCH").parse::<u32>().unwrap() + 1;
         let mut state = State {
-            version: "0.9.0".into(),
+            version: format!(
+                "{}.{}.{next_patch}",
+                env!("CARGO_PKG_VERSION_MAJOR"),
+                env!("CARGO_PKG_VERSION_MINOR")
+            ),
             ..Default::default()
         };
         assert!(state.available());

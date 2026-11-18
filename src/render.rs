@@ -156,6 +156,7 @@ struct Formats {
     subtitle: IDWriteTextFormat,
     hint: IDWriteTextFormat,
     glyph: IDWriteTextFormat,
+    emoji: IDWriteTextFormat,
     search_glyph: IDWriteTextFormat,
     letter: IDWriteTextFormat,
     value: IDWriteTextFormat,
@@ -199,6 +200,7 @@ struct Target {
     rt: ID2D1HwndRenderTarget,
     brush: ID2D1SolidColorBrush,
     accent: ID2D1SolidColorBrush,
+    glass: crate::glass::Cache,
     bitmaps: HashMap<String, ID2D1Bitmap>,
     query_layout: Option<CachedLayout>,
     chip_layout: Option<CachedLayout>,
@@ -229,6 +231,7 @@ impl Renderer {
                 subtitle: ellipsized(&dwrite, text_format(&dwrite, ui, 12.0, DWRITE_FONT_WEIGHT_NORMAL)?)?,
                 hint: text_format(&dwrite, ui, 12.0, DWRITE_FONT_WEIGHT_NORMAL)?,
                 glyph: text_format(&dwrite, icons, 16.0, DWRITE_FONT_WEIGHT_NORMAL)?,
+                emoji: text_format(&dwrite, w!("Segoe UI Emoji"), 22.0, DWRITE_FONT_WEIGHT_NORMAL)?,
                 search_glyph: text_format(&dwrite, icons, 17.0, DWRITE_FONT_WEIGHT_NORMAL)?,
                 letter: text_format(&dwrite, ui, 15.0, DWRITE_FONT_WEIGHT_SEMI_BOLD)?,
                 value: text_format(&dwrite, fonts.display, 22.0, DWRITE_FONT_WEIGHT_SEMI_BOLD)?,
@@ -236,7 +239,7 @@ impl Renderer {
             };
             formats.small.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             formats.hint.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING)?;
-            for format in [&formats.glyph, &formats.search_glyph, &formats.letter] {
+            for format in [&formats.glyph, &formats.emoji, &formats.search_glyph, &formats.letter] {
                 format.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             }
             Ok(Self {
@@ -290,7 +293,7 @@ impl Renderer {
         let result = unsafe {
             rt.BeginDraw();
             self.stops.clear();
-            crate::theme::paint_background(&rt, &target.brush, frame.palette, frame.radius);
+            crate::theme::paint_background(&rt, &target.brush, frame.palette, frame.radius, &mut target.glass);
             let size = rt.GetSize();
             let (width, height) = frame.content_size.unwrap_or((size.width, size.height));
             let (x, y) = crate::morph::content_offset(size.width, size.height, width, height);
@@ -388,6 +391,7 @@ impl Renderer {
             Ok(Target {
                 brush: rt.CreateSolidColorBrush(&white, None)?,
                 accent: rt.CreateSolidColorBrush(&white, None)?,
+                glass: Default::default(),
                 bitmaps: HashMap::new(),
                 query_layout: None,
                 chip_layout: None,
@@ -651,6 +655,17 @@ unsafe fn draw_frame(
                     brush.SetColor(&p.tile);
                     rt.FillRoundedRectangle(&rounded(icon_rect, 7.0), brush);
                     match item.kind {
+                        Kind::Emoji if let crate::search::Action::Copy(glyph) = &item.action => {
+                            brush.SetColor(&p.text);
+                            rt.DrawText(
+                                &wide(glyph),
+                                &fm.emoji,
+                                &icon_rect,
+                                brush,
+                                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT,
+                                DWRITE_MEASURING_MODE_NATURAL,
+                            );
+                        }
                         Kind::App if item.glyph.is_none() => {
                             let letter = item
                                 .title

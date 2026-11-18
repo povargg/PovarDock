@@ -25,6 +25,7 @@ const LOWER: (f32, f32) = (28.0, 48.0);
 struct Target {
     rt: ID2D1HwndRenderTarget,
     brush: ID2D1SolidColorBrush,
+    glass: crate::glass::Cache,
     bitmaps: HashMap<String, (Arc<IconPixels>, ID2D1Bitmap)>,
     /// Notification-area icons, by their tray identity.
     tray: HashMap<Key, (Arc<IconPixels>, ID2D1Bitmap)>,
@@ -271,6 +272,7 @@ impl Renderer {
             self.shared_target = Some(Target {
                 rt: rt.clone(),
                 brush: unsafe { rt.CreateSolidColorBrush(&frame.palette.text, None)? },
+                glass: Default::default(),
                 bitmaps: HashMap::new(),
                 tray: HashMap::new(),
                 size: D2D_SIZE_U::default(),
@@ -480,6 +482,7 @@ impl Renderer {
                 rt.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
                 self.target = Some(Target {
                     brush: rt.CreateSolidColorBrush(&palette.text, None)?,
+                    glass: Default::default(),
                     rt,
                     bitmaps: HashMap::new(),
                     tray: HashMap::new(),
@@ -550,8 +553,14 @@ fn tile(target: &Target, frame: &Frame, left: f32, right: f32, color: &D2D1_COLO
 }
 
 /// DWM rounds the corners and draws the backdrop; this only tints it.
-fn background(target: &Target, palette: &Palette, layout_scale: f32) {
-    crate::theme::paint_background(&target.rt, &target.brush, palette, 8.0 * layout_scale);
+fn background(target: &mut Target, palette: &Palette, layout_scale: f32) {
+    crate::theme::paint_background(
+        &target.rt,
+        &target.brush,
+        palette,
+        8.0 * layout_scale,
+        &mut target.glass,
+    );
 }
 
 /// Draws a notification icon centered on (`x`, `y`). Its pixels are made
@@ -802,6 +811,37 @@ fn text(
     }
 }
 
+/// Thin contrast edging makes the clock and controls readable over a changing scene.
+fn control_text(
+    rt: &ID2D1HwndRenderTarget,
+    brush: &ID2D1SolidColorBrush,
+    format: &IDWriteTextFormat,
+    label: &str,
+    area: D2D_RECT_F,
+    palette: &Palette,
+    color: D2D1_COLOR_F,
+) {
+    if palette.glass.is_some() {
+        unsafe {
+            brush.SetColor(&D2D1_COLOR_F {
+                a: 0.80,
+                ..palette.background_solid
+            })
+        };
+        for (x, y) in [(-0.8, 0.0), (0.8, 0.0), (0.0, -0.8), (0.0, 0.8)] {
+            text(
+                rt,
+                brush,
+                format,
+                label,
+                rect(area.left + x, area.top + y, area.right + x, area.bottom + y),
+            );
+        }
+    }
+    unsafe { brush.SetColor(&color) };
+    text(rt, brush, format, label, area);
+}
+
 /// Segoe Fluent Icons speaker: muted, silent, or one to three waves.
 fn volume_glyph(percent: u32, muted: bool) -> &'static str {
     match (muted, percent) {
@@ -853,6 +893,21 @@ fn draw_status(target: &mut Target, formats: &Formats, frame: &Frame) -> Result<
             );
         }
         match part {
+            Part::Settings | Part::Power => {
+                let glyph = if part == Part::Power {
+                    crate::commands::power::Power::ShutDown.glyph()
+                } else {
+                    crate::commands::glyph::SETTINGS
+                };
+                let area = rect(
+                    left,
+                    TILE_TOP * frame.layout_scale,
+                    right,
+                    TILE_BOTTOM * frame.layout_scale,
+                );
+                control_text(&target.rt, &target.brush, &formats.status_icon, glyph, area, p, p.text);
+                continue;
+            }
             Part::Chevron => {
                 unsafe { target.brush.SetColor(&p.text) };
                 // Up opens the flyout and down closes it, as on the taskbar.
@@ -999,12 +1054,10 @@ fn draw_status(target: &mut Target, formats: &Formats, frame: &Frame) -> Result<
                     }
                 }
                 Part::Clock => {
-                    brush.SetColor(&p.text);
-                    text(rt, brush, &formats.time, &status.time, upper);
-                    brush.SetColor(&p.subtext);
-                    text(rt, brush, &formats.small, &status.date, lower);
+                    control_text(rt, brush, &formats.time, &status.time, upper, p, p.text);
+                    control_text(rt, brush, &formats.small, &status.date, lower, p, p.subtext);
                 }
-                Part::Chevron | Part::Tray(_) => {}
+                Part::Chevron | Part::Tray(_) | Part::Settings | Part::Power => {}
             }
         }
     }
