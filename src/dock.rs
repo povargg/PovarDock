@@ -16,16 +16,10 @@ mod pins;
 mod power_menu;
 #[path = "dock/render.rs"]
 mod render;
-#[path = "dock/space.rs"]
-pub mod space;
-
 #[path = "dock/status.rs"]
 mod status;
 #[path = "dock/tray.rs"]
 mod tray;
-
-/// Reserved height in DIPs at the default app icon size.
-pub const DEFAULT_RESERVED_HEIGHT: f32 = logic::HEIGHT + 2.0 * logic::MARGIN;
 
 use crate::deferred::{Deferred, Queue};
 use std::cell::{Cell, RefCell};
@@ -672,7 +666,7 @@ static SCREEN: std::sync::Mutex<(Option<RECT>, bool)> = std::sync::Mutex::new((N
 
 /// The bounds of the screen the dock stays on, or `None` while it follows
 /// the pointer.
-pub fn fixed_screen() -> Option<RECT> {
+fn fixed_screen() -> Option<RECT> {
     SCREEN.lock().map_or(None, |screen| screen.0)
 }
 
@@ -720,8 +714,6 @@ pub struct Dock {
     popups: Vec<HWND>,
     state: Box<StateCell>,
     hooks: Vec<HWINEVENTHOOK>,
-    autohide: Cell<bool>,
-    app_icon_size: Cell<f32>,
 }
 
 impl Dock {
@@ -878,8 +870,6 @@ impl Dock {
             popups: Vec::new(),
             state,
             hooks: Vec::new(),
-            autohide: Cell::new(true),
-            app_icon_size: Cell::new(logic::DEFAULT_APP_ICON_SIZE),
         };
         // The flyout and tooltips are owned by the dock, so they stay above it.
         let popup = WNDCLASSEXW {
@@ -1184,8 +1174,6 @@ impl Dock {
             autohide,
             screen,
         } = config.clone();
-        self.app_icon_size.set(size);
-        self.autohide.set(autohide);
         self.update(Some("configure"), move |s| {
             if s.status_placement == placement
                 && s.order == order
@@ -1347,18 +1335,6 @@ impl Dock {
             s.sync_tray();
         });
     }
-    /// Whether the dock stays on screen instead of auto-hiding.
-    pub fn stays_visible(&self) -> bool {
-        !self.autohide.get()
-    }
-
-    /// The room a dock that stays visible keeps at the bottom of the primary
-    /// screen, in DIPs: its height and the margins above and below it.
-    pub fn reserved_height(&self) -> f32 {
-        let scale = logic::layout_scale(self.app_icon_size.get());
-        logic::height(scale) + 2.0 * logic::margin(scale)
-    }
-
     /// Hides the dock until `show`, such as while the launcher is open.
     pub fn hide(&mut self) {
         self.update(Some("hide"), move |s| {

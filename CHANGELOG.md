@@ -4,6 +4,11 @@ User-facing changes in each release. Each release on GitHub lists these notes an
 
 ## Unreleased
 
+## 0.10.3 - 2026-11-21
+
+- Switch desktops with Win plus a number when Win is selected for desktop shortcuts.
+- Keep the dock above maximized windows without reserving a screen strip, so snow and other effects can settle on the dock itself.
+
 ## 0.10.2 - 2026-11-21
 
 - Enlarged the monocle icon across Windows and the app.

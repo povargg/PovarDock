@@ -22,7 +22,6 @@ use windows::core::{HSTRING, PCWSTR, Result, w};
 use crate::commands::{self, Command, Commands};
 use crate::config::{Config, Position, Theme};
 use crate::dock::desktops;
-use crate::dock::space::DockSpace;
 use crate::dock::{self, Dock};
 use crate::drag::{self, Payload};
 use crate::files::{self, FileResults, FileSearch};
@@ -293,7 +292,6 @@ pub fn run() -> Result<()> {
             commands_sent: 0,
             taskbar: None,
             taskbar_failures: 0,
-            dock_space: None,
             dock: None,
             morph: None,
             morphed: false,
@@ -452,8 +450,6 @@ struct Launcher {
     taskbar: Option<TaskbarWorker>,
     /// Failed attempts to hide or restore the taskbar since the config changed.
     taskbar_failures: u32,
-    /// Room kept for a dock that stays visible.
-    dock_space: Option<DockSpace>,
     dock: Option<Dock>,
     morph: Option<Morph>,
     morphed: bool,
@@ -515,17 +511,35 @@ impl Launcher {
         }
         // Windows needs the tray icon before it can show notifications.
         tray::add(self.hwnd, self.tray_icon, &self.tooltip());
-        if !capture::active() {
-            self.sync_win_key();
-            self.register_hotkey(true);
-            self.register_desktop_shortcuts();
-        }
+        self.sync_shortcuts();
         self.indexer.rescan();
         self.last_scan = Instant::now();
     }
 
-    fn register_desktop_shortcuts(&mut self) {
-        let message = match wisp_settings::desktop_modifiers(&self.config.desktop_shortcut) {
+    fn sync_shortcuts(&mut self) {
+        if capture::active() {
+            return;
+        }
+        let desktop_modifiers = wisp_settings::desktop_modifiers(&self.config.desktop_shortcut);
+        let wants_win = desktop_modifiers
+            .as_ref()
+            .is_ok_and(|mask| desktops::win_modifiers(*mask) != 0);
+        if (self.config.win_key || wants_win) && self.win_key_hook.is_none() {
+            match crate::win_key::Hook::install(self.hwnd) {
+                Ok(hook) => self.win_key_hook = Some(hook),
+                Err(error) => tray::notify(
+                    self.hwnd,
+                    "Could not enable Windows key shortcuts",
+                    &error.to_string(),
+                    true,
+                ),
+            }
+        }
+        self.register_hotkey(true);
+
+        let message = match desktop_modifiers {
+            // Leave the old hotkeys registered if the Windows key hook failed.
+            Ok(_) if wants_win && self.win_key_hook.is_none() => None,
             Ok(wanted) => desktops::register_shortcuts(self.hwnd, &mut self.desktop_modifiers, wanted)
                 .err()
                 .map(|key| {
@@ -538,6 +552,13 @@ impl Launcher {
         };
         if let Some(message) = message {
             tray::notify(self.hwnd, "Virtual desktop shortcuts", &message, true);
+        }
+
+        let win_desktops = desktops::win_modifiers(self.desktop_modifiers);
+        if !self.config.win_key && win_desktops == 0 {
+            self.win_key_hook = None;
+        } else if let Some(hook) = &self.win_key_hook {
+            hook.configure(self.config.win_key, win_desktops);
         }
     }
 
@@ -650,18 +671,6 @@ impl Launcher {
         tray::set_tip(hwnd, &self.tooltip());
     }
 
-    fn sync_win_key(&mut self) {
-        if !self.config.win_key {
-            self.win_key_hook = None;
-        } else if self.win_key_hook.is_none() && !capture::active() {
-            match crate::win_key::Hook::install(self.hwnd, WM_HOTKEY) {
-                Ok(hook) => self.win_key_hook = Some(hook),
-                Err(error) => tray::notify(self.hwnd, "Could not enable Win key", &error.to_string(), true),
-            }
-            tray::set_tip(self.hwnd, &self.tooltip());
-        }
-    }
-
     fn reload_config_if_changed(&mut self) {
         // show() also checks config, so protect ownership changes on that path.
         if self
@@ -696,9 +705,7 @@ impl Launcher {
         self.taskbar_failures = 0;
         self.sync_shell();
         self.apply_theme();
-        self.sync_win_key();
-        self.register_hotkey(true);
-        self.register_desktop_shortcuts();
+        self.sync_shortcuts();
         // Search files again with the new settings.
         if file_search_changed {
             self.file_query = None;
@@ -718,7 +725,6 @@ impl Launcher {
         if !self.config.dock {
             self.dock = None;
             dock::desktop_popup::watch(false);
-            self.sync_reserve();
             return;
         }
         if self.dock.is_none() {
@@ -743,38 +749,6 @@ impl Launcher {
             if self.visible { dock.hide() } else { dock.show() }
         }
         dock::desktop_popup::watch(!capture::active());
-        self.sync_reserve();
-    }
-
-    /// Keeps maximized windows above a dock that stays visible while the
-    /// taskbar is hidden. A shown taskbar keeps its own space.
-    fn sync_reserve(&mut self) {
-        let hidden = self.taskbar.as_ref().is_some_and(TaskbarWorker::is_active);
-        let wanted = hidden && self.dock.as_ref().is_some_and(Dock::stays_visible);
-        let reserved_height = self
-            .dock
-            .as_ref()
-            .map_or(dock::DEFAULT_RESERVED_HEIGHT, Dock::reserved_height);
-        // Before the space exists, so a re-hide while Windows places it
-        // cannot take the bottom back.
-        if wanted && let Some(hider) = &self.taskbar {
-            hider.keep_bottom(true);
-        }
-        if !wanted {
-            self.dock_space = None;
-        } else if let Some(space) = &self.dock_space {
-            // The taskbar hider may have just changed the work area.
-            space.set_height(reserved_height);
-            space.check();
-        } else {
-            match DockSpace::new(reserved_height) {
-                Ok(space) => self.dock_space = Some(space),
-                Err(e) => eprintln!("could not keep space for the dock: {e}"),
-            }
-        }
-        if let Some(hider) = &self.taskbar {
-            hider.keep_bottom(self.dock_space.is_some());
-        }
     }
 
     /// Shows the Windows taskbar for a moment, from the dock's chevron menu.
@@ -872,9 +846,6 @@ impl Launcher {
             }
         }
         self.sync_tray();
-        // Explorer restarting or the hider reclaiming space can take the
-        // dock's space away.
-        self.sync_reserve();
         // Re-hiding and reclaiming space can change Explorer's z-order. Don't
         // wait for the tray host's periodic check.
         if shown && let Some(dock) = &self.dock {
@@ -898,10 +869,9 @@ impl Launcher {
 
     /// Hides the taskbar again after Explorer or Windows shows it.
     fn on_taskbar_message(&mut self, msg: u32) {
-        match &self.taskbar {
+        if let Some(hider) = &self.taskbar {
             // `drain_taskbar_results` follows up once the hider is done.
-            Some(hider) => hider.on_message(msg),
-            None => self.sync_reserve(),
+            hider.on_message(msg);
         }
     }
 
@@ -2671,13 +2641,6 @@ impl Launcher {
             if let Some(Err(e)) = self.taskbar.take().map(TaskbarWorker::shutdown) {
                 eprintln!("could not restore the taskbar: {e}");
             }
-        }
-        // Removed last, so Windows works the work area out again from the
-        // restored taskbar and the remaining app bars. Waits, so the space
-        // is back before Wisp exits.
-        if let Some(space) = self.dock_space.take() {
-            let _span = util::perf::Span::new("quit_dock_space");
-            space.close();
         }
         unsafe {
             let _ = UnregisterHotKey(Some(self.hwnd), HOTKEY_ID);

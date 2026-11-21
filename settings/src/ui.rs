@@ -1219,7 +1219,7 @@ impl Settings {
                     .child(divider(p))
                     .child(row(
                         "Keep the dock visible",
-                        "While the taskbar is hidden, windows stop above the dock.",
+                        "Float the dock above maximized windows.",
                         Switch::new("dock-visible")
                             .checked(!self.config.dock_autohide)
                             .disabled(!self.config.dock)

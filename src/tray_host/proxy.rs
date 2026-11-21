@@ -460,7 +460,7 @@ fn owner_alive(hwnd: u32, pid: u32) -> bool {
 }
 
 /// Explorer's own primary taskbar: the class, minus our proxy, in an explorer.exe.
-pub fn explorer_tray() -> Option<(HWND, u32)> {
+fn explorer_tray() -> Option<(HWND, u32)> {
     crate::taskbar::taskbar_windows().into_iter().find_map(|hwnd| {
         let mut class = [0u16; 32];
         let len = unsafe { GetClassNameW(hwnd, &mut class) } as usize;

@@ -39,10 +39,6 @@ pub const WM_TASKBAR_SHOW: u32 = WM_APP + 40;
 pub const WM_RECOVERY_DONE: u32 = WM_APP + 41;
 /// The taskbar thread finished a job.
 pub const WM_TASKBAR_RESULT: u32 = WM_APP + 42;
-/// The dock space's app bar callback.
-pub const WM_APPBAR: u32 = WM_APP + 50;
-pub const WM_CHECK: u32 = WM_APP + 51;
-pub const WM_SET_HEIGHT: u32 = WM_APP + 52;
 pub const WM_OUTRANK: u32 = WM_APP + 60;
 
 #[cfg(test)]
@@ -77,9 +73,6 @@ mod tests {
             WM_TASKBAR_SHOW,
             WM_RECOVERY_DONE,
             WM_TASKBAR_RESULT,
-            WM_APPBAR,
-            WM_CHECK,
-            WM_SET_HEIGHT,
             WM_OUTRANK,
         ];
         let mut sorted = all.to_vec();

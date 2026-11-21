@@ -29,7 +29,6 @@ enum Job {
     Reapply,
     /// A shell broadcast or hook message the hider reacts to.
     Message(u32),
-    KeepBottom(bool),
     Peek,
     PeekTick,
     /// Restore now and answer, for quitting.
@@ -125,10 +124,6 @@ impl TaskbarWorker {
 
     pub fn on_message(&self, msg: u32) {
         self.send(Job::Message(msg));
-    }
-
-    pub fn keep_bottom(&self, keep: bool) {
-        self.send(Job::KeepBottom(keep));
     }
 
     pub fn peek(&self) {
@@ -255,11 +250,6 @@ fn handle(job: Job, hider: &mut Option<TaskbarHider>, owner: HWND, report: &impl
                 message: Some(msg),
                 result: result.map_err(Failure::from),
             });
-        }
-        Job::KeepBottom(keep) => {
-            if let Some(hider) = hider {
-                hider.keep_bottom(keep);
-            }
         }
         Job::Peek => {
             let result = hider.as_mut().map_or(Ok(()), TaskbarHider::peek);

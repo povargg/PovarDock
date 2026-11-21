@@ -529,9 +529,6 @@ pub struct TaskbarHider {
     taskbar_created: u32,
     /// When the user asked to see the taskbar; hiding waits until they are done.
     peek: Option<Instant>,
-    /// Leaves the primary screen's bottom to a dock that keeps its own space,
-    /// instead of reclaiming the taskbar's strip there.
-    keep_bottom: bool,
     _thread: PhantomData<Rc<()>>,
 }
 
@@ -588,7 +585,6 @@ impl TaskbarHider {
             restored: false,
             taskbar_created: unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) },
             peek: None,
-            keep_bottom: false,
             _thread: PhantomData,
         };
         if hook.is_invalid() {
@@ -656,13 +652,6 @@ impl TaskbarHider {
             *slot = None;
         }
         Ok(())
-    }
-
-    /// With `keep`, leaves the bottom of the primary screen's work area to
-    /// the dock's app bar. The taskbar is auto-hide while hidden, so Windows
-    /// keeps no space for it there anyway.
-    pub fn keep_bottom(&mut self, keep: bool) {
-        self.keep_bottom = keep;
     }
 
     pub fn is_active(&self) -> bool {
@@ -778,26 +767,12 @@ impl TaskbarHider {
         for bar in &current {
             clip(HWND(bar.hwnd as _));
         }
-        // The dock's screen: the main one unless the user chose another.
-        let dock_bounds = match crate::dock::fixed_screen() {
-            Some(bounds) => Rect::from(bounds),
-            None => Rect::from(
-                monitor_info(unsafe { MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) })?.rcMonitor,
-            ),
-        };
+        // The dock floats above windows in both modes. Only real screen
+        // reservations should limit the work area or other apps' ground level.
         for monitor in monitors()? {
             let mut target = monitor.work;
             for bar in current.iter().filter(|bar| bar.monitor == monitor.bounds) {
-                let reclaimed = state::reclaimed_work(monitor.bounds, target, bar.rect);
-                // The dock's app bar owns the bottom; reclaiming would erase it.
-                if self.keep_bottom && monitor.bounds == dock_bounds {
-                    target = Rect {
-                        bottom: target.bottom,
-                        ..reclaimed
-                    };
-                } else {
-                    target = reclaimed;
-                }
+                target = state::reclaimed_work(monitor.bounds, target, bar.rect);
             }
             if target != monitor.work {
                 println!("reclaim work area {:?} -> {:?}", monitor.work, target);

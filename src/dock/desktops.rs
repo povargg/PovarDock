@@ -9,7 +9,7 @@ use windows::Win32::System::Registry::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
-    KEYEVENTF_KEYUP, MOD_NOREPEAT, RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_CONTROL, VK_D,
+    KEYEVENTF_KEYUP, MOD_NOREPEAT, MOD_WIN, RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_CONTROL, VK_D,
     VK_LCONTROL, VK_LEFT, VK_LWIN, VK_MENU, VK_RIGHT, VK_RWIN, VK_SHIFT,
 };
 use windows::core::{HSTRING, PCWSTR, w};
@@ -264,13 +264,18 @@ pub fn modifiers_down() -> bool {
         .any(|key| unsafe { GetAsyncKeyState(i32::from(key.0)) < 0 })
 }
 
-/// Registers a full bank, or restores the previous one if a key is taken.
+pub fn win_modifiers(modifiers: u32) -> u32 {
+    if modifiers & MOD_WIN.0 != 0 { modifiers } else { 0 }
+}
+
+/// Registers a bank of global shortcuts or restores the previous one if a key
+/// is taken. The keyboard hook handles banks that include the Windows key.
 pub fn register_shortcuts(owner: HWND, registered: &mut u32, wanted: u32) -> Result<(), usize> {
     if *registered == wanted {
         return Ok(());
     }
     let previous = std::mem::take(registered);
-    if previous != 0 {
+    if previous != 0 && win_modifiers(previous) == 0 {
         unregister_shortcuts(owner, HOTKEY_COUNT);
     }
     match register_bank(owner, wanted) {
@@ -288,7 +293,7 @@ pub fn register_shortcuts(owner: HWND, registered: &mut u32, wanted: u32) -> Res
 }
 
 fn register_bank(owner: HWND, modifiers: u32) -> Result<(), usize> {
-    if modifiers == 0 {
+    if modifiers == 0 || win_modifiers(modifiers) != 0 {
         return Ok(());
     }
     let modifiers = HOT_KEY_MODIFIERS(modifiers) | MOD_NOREPEAT;

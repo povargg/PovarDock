@@ -62,8 +62,7 @@ hide_taskbar = true
 dock = true
 
 # Hide the dock until the pointer touches the bottom edge of a screen. With
-# false, the dock stays on the main screen and windows stop above it while the
-# taskbar is hidden.
+# false, it stays visible above ordinary maximized windows.
 dock_autohide = true
 
 # The screen the dock shows on: "pointer", "main", or a screen chosen in
