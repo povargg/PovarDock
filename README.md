@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/povardock-transparent.png" width="112" alt="PovarDock icon">
+  <img src="assets/povardock-icon.png" width="112" alt="PovarDock icon">
 </p>
 
 <h1 align="center">PovarDock</h1>

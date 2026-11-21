@@ -4,6 +4,10 @@ User-facing changes in each release. Each release on GitHub lists these notes an
 
 ## Unreleased
 
+## 0.10.2 - 2026-11-21
+
+- Enlarged the monocle icon across Windows and the app.
+
 ## 0.10.1 - 2026-11-21
 
 - Made the app icon background transparent.
