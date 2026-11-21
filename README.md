@@ -24,18 +24,18 @@
 
 ## What you can do
 
-Use the keyboard to find apps, files, and emoji or switch between virtual
-desktops. Pin the apps you use most to the dock and customize its look with a
-color palette or Liquid Glass.
+With PovarDock, you can pull up an app, a file, or an emoji from the keyboard
+and jump straight to the desktop you need. Pin the apps you open all the time
+and give the dock a look you like with a color palette or Liquid Glass.
 
 | Feature | What it gives you |
 | --- | --- |
-| **Keyboard launcher** | Press <kbd>Alt</kbd>+<kbd>Space</kbd> to find apps, files, windows, and emoji. The launcher also runs commands and handles calculations and web searches. |
-| **Dock and tray** | Pin and reorder apps, switch between windows, open Jump Lists, and arrange the dock's sections. Choose a display and keep the dock visible or let it hide. |
-| **System controls** | Reach the clock, volume, media, battery, Wi-Fi, and Bluetooth from the dock. The power menu gives you quick access to sleep, restart, and shutdown. |
-| **Themes** | Use palettes such as Gruvbox, Tokyo Night, Nord, Catppuccin, and Rosé Pine. Adjust color and backdrop, or try Liquid Glass and tune its rim, refraction, and transparency. |
-| **Virtual desktops** | Use the arrows beside the desktop number or press **Alt + 1–9** to select a desktop. A shortcut creates any missing desktops up to its number. The right arrow creates the next desktop at the end of the row. Change modifiers in **Settings → General**. |
-| **Portable app** | The dock, launcher, and Settings live in the same executable. Check for new PovarDock builds under **Settings → About**. |
+| **Keyboard launcher** | Open the launcher with <kbd>Alt</kbd>+<kbd>Space</kbd> to find apps, files, windows, or emoji. You can also run a command, do a calculation, or search the web from there. |
+| **Dock and tray** | Pin your apps in the order you want, switch between windows, and open Jump Lists from the dock. You can move the sections around, choose a display, and keep the dock visible or let it hide. |
+| **System controls** | The clock, volume, media controls, battery, Wi-Fi, and Bluetooth are right in the dock. Sleep, restart, and shutdown are all in the power menu. |
+| **Themes** | Pick a palette like Gruvbox, Tokyo Night, Nord, Catppuccin, or Rosé Pine and adjust the color and backdrop. With Liquid Glass, you can also tune the rim, refraction, and transparency. |
+| **Virtual desktops** | Use the arrows beside the number or jump straight to a desktop with **Alt + 1–9**. If that desktop is missing, the shortcut creates it and any desktops in between. The right arrow creates the next one when you're on the last desktop. You can change the modifiers in **Settings → General**. |
+| **Portable app** | You get the dock, launcher, and settings in one executable. Check for new versions in **Settings → About**. |
 
 > [!NOTE]
 > Liquid Glass is in early development. Its refraction and edges can still look rough on some backgrounds. Set **Transparency** to **0%** for an almost opaque surface.

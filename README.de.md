@@ -22,20 +22,21 @@
   <a href="https://github.com/povargg/PovarDock/releases">Versionshinweise</a>
 </p>
 
-## Was du mit PovarDock machen kannst
+## Was PovarDock kann
 
-Finde Apps, Dateien und Emojis per Tastatur und wechsle mit Tastenkürzeln
-zwischen virtuellen Desktops. Hefte die Apps an, die du oft brauchst, und passe
-das Dock mit einem Farbschema oder Liquid Glass an.
+Apps, Dateien und Emojis lassen sich direkt per Tastatur finden. Mit einem
+Tastenkürzel geht es zum gewünschten virtuellen Desktop. Häufig genutzte Apps
+können im Dock angeheftet werden. Für die Optik stehen Farbschemata und
+Liquid Glass zur Auswahl.
 
-| Funktion | Was du damit machen kannst |
+| Funktion | Was möglich ist |
 | --- | --- |
-| **Launcher** | Mit <kbd>Alt</kbd>+<kbd>Leertaste</kbd> öffnest du den Launcher für Apps, Dateien, Fenster und Emojis. Dort kannst du auch Befehle ausführen, rechnen und im Web suchen. |
-| **Dock und Infobereich** | Hefte Apps an, ändere ihre Reihenfolge, wechsle zwischen Fenstern und öffne Sprunglisten. Du kannst die Bereiche im Dock anordnen, einen Bildschirm auswählen und das Dock dauerhaft anzeigen oder automatisch ausblenden. |
-| **Systemfunktionen** | Im Dock findest du Uhr, Lautstärke, Mediensteuerung, Akkustand, WLAN und Bluetooth. Über das Energiemenü kannst du den PC in den Energiesparmodus versetzen, ihn neu starten oder herunterfahren. |
-| **Designs** | Zur Auswahl stehen unter anderem Gruvbox, Tokyo Night, Nord, Catppuccin und Rosé Pine. Passe Farbe und Hintergrund an oder probiere Liquid Glass aus und stelle Rand, Lichtbrechung und Transparenz ein. |
-| **Virtuelle Desktops** | Wechsle mit den Pfeilen neben der Nummer oder mit **Alt + 1–9** zwischen den Desktops. Beim Wechsel per Tastenkürzel werden fehlende Desktops bis zur gewählten Nummer erstellt. Auf dem letzten Desktop legt der rechte Pfeil einen weiteren an. Die Modifikatortasten lassen sich unter **Settings → General** ändern. |
-| **Portable Anwendung** | Dock, Launcher und Einstellungen stecken in derselben ausführbaren Datei. Unter **Settings → About** kannst du nach neuen Versionen von PovarDock suchen. |
+| **Launcher** | <kbd>Alt</kbd>+<kbd>Leertaste</kbd> öffnet die Suche nach Apps, Dateien, Fenstern und Emojis. Dort lassen sich auch Befehle ausführen, Rechnungen lösen und Websuchen starten. |
+| **Dock und Infobereich** | Apps lassen sich anheften und anordnen. Das Dock erlaubt auch den Wechsel zwischen Fenstern und den Zugriff auf Sprunglisten. Bereiche und Bildschirm sind einstellbar. Das Dock kann sichtbar bleiben oder sich automatisch ausblenden. |
+| **Systemfunktionen** | Im Dock gibt es Uhr, Lautstärke, Mediensteuerung, Akkustand, WLAN und Bluetooth. Im Energiemenü stehen Energiesparmodus, Neustart und Herunterfahren zur Auswahl. |
+| **Designs** | Zur Auswahl stehen unter anderem Gruvbox, Tokyo Night, Nord, Catppuccin und Rosé Pine. Farbe und Hintergrund lassen sich anpassen. Bei Liquid Glass sind auch Rand, Lichtbrechung und Transparenz einstellbar. |
+| **Virtuelle Desktops** | Mit den Pfeilen neben der Nummer oder mit **Alt + 1–9** lässt sich der Desktop wechseln. Das Tastenkürzel legt den gewählten Desktop an, falls er fehlt, und erstellt auch die Desktops dazwischen. Auf dem letzten Desktop legt der rechte Pfeil einen weiteren an. Die Modifikatortasten sind unter **Settings → General** einstellbar. |
+| **Portable Anwendung** | Dock, Launcher und Einstellungen stecken in derselben ausführbaren Datei. Unter **Settings → About** lässt sich nach neuen Versionen von PovarDock suchen. |
 
 > [!NOTE]
 > Liquid Glass befindet sich in einer frühen Entwicklungsphase. Auf manchen
