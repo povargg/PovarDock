@@ -1,10 +1,13 @@
-# Wisp config. Changes apply the next time the launcher opens.
+# PovarDock config. Changes apply the next time the launcher opens.
 
 # Shortcut to show or hide the launcher.
 # Examples: "Alt+Space", "Ctrl+Shift+Space", "Win+Alt+R", "Ctrl+F12"
 hotkey = "Alt+Space"
 
-# Tap the Windows key alone to open Wisp instead of Start. Replaces hotkey
+# Hold these modifiers and press 1–9 to switch virtual desktops. Empty disables it.
+desktop_shortcut = "Alt"
+
+# Tap the Windows key alone to open PovarDock instead of Start. Replaces hotkey
 # while on.
 win_key = false
 
@@ -34,7 +37,7 @@ position = "bottom"
 # Show recently launched apps when the search box is empty.
 show_recent = true
 
-# Web search URL. Wisp replaces {query} with the encoded search text.
+# Web search URL. PovarDock replaces {query} with the encoded search text.
 search_url = "https://www.google.com/search?q={query}"
 
 # Search file names.
@@ -51,7 +54,7 @@ file_search_exclude = ["node_modules", "AppData", "site-packages", "__pycache__"
 # Check daily for new stable releases, except on metered connections.
 check_for_updates = true
 
-# Hide the Windows taskbar while Wisp runs. The taskbar comes back when Wisp
+# Hide the Windows taskbar while PovarDock runs. The taskbar comes back when PovarDock
 # quits.
 hide_taskbar = true
 

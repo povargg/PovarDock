@@ -17,7 +17,8 @@ const KEY: PCWSTR = w!(
 );
 const HEADER: &[u8] = &[0x43, 0x42, 1, 0];
 const PREFIX: &[u8] = &[0x43, 0x42, 1, 0, 0x0a, 2, 1, 0, 0x2a, 6];
-const UNSUPPORTED: &str = "Wisp can't change Night Light on this PC. Use Settings > System > Display > Night light.";
+const UNSUPPORTED: &str =
+    "PovarDock can't change Night Light on this PC. Use Settings > System > Display > Night light.";
 
 #[derive(Debug, PartialEq)]
 struct State {

@@ -34,6 +34,7 @@ pub const WM_ARTWORK: u32 = WM_APP + 29;
 /// The volume, mute or default output device changed.
 pub const WM_DOCK_STATUS: u32 = WM_APP + 30;
 pub const WM_SHOW_SETTINGS: u32 = WM_APP + 31;
+pub const WM_DESKTOP_STEP: u32 = WM_APP + 32;
 pub const WM_TASKBAR_SHOW: u32 = WM_APP + 40;
 pub const WM_RECOVERY_DONE: u32 = WM_APP + 41;
 /// The taskbar thread finished a job.
@@ -72,6 +73,7 @@ mod tests {
             WM_ARTWORK,
             WM_DOCK_STATUS,
             WM_SHOW_SETTINGS,
+            WM_DESKTOP_STEP,
             WM_TASKBAR_SHOW,
             WM_RECOVERY_DONE,
             WM_TASKBAR_RESULT,

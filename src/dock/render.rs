@@ -44,6 +44,8 @@ struct Formats {
     status_icon: IDWriteTextFormat,
     glyph: IDWriteTextFormat,
     badge: IDWriteTextFormat,
+    /// One line in a menu button, vertically centered.
+    menu: IDWriteTextFormat,
     /// Tooltips: left-aligned and wrapping.
     tip: IDWriteTextFormat,
     /// One line of the window list, clipped at the card's edge.
@@ -136,6 +138,8 @@ pub struct Frame<'a> {
     pub tray: &'a [Shown],
     pub inline: &'a [usize],
     pub flyout_open: bool,
+    pub power_open: bool,
+    pub desktop: (usize, usize),
 }
 
 /// The notification-area flyout's grid.
@@ -163,6 +167,8 @@ fn create_formats(dw: &IDWriteFactory, text: PCWSTR, display: PCWSTR, icons: PCW
             format.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
             Ok(format)
         };
+        let menu = format(text, DWRITE_FONT_WEIGHT_NORMAL, 13.0)?;
+        menu.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING)?;
         let tip = dw.CreateTextFormat(
             text,
             None,
@@ -195,6 +201,7 @@ fn create_formats(dw: &IDWriteFactory, text: PCWSTR, display: PCWSTR, icons: PCW
             status_icon: format(icons, DWRITE_FONT_WEIGHT_NORMAL, 21.0)?,
             matrix: format(icons, DWRITE_FONT_WEIGHT_NORMAL, 14.0)?,
             badge: format(icons, DWRITE_FONT_WEIGHT_NORMAL, 8.0)?,
+            menu,
             tip,
             row,
         })
@@ -293,6 +300,57 @@ impl Renderer {
 
     pub fn draw_flyout(&mut self, hwnd: HWND, frame: &FlyoutFrame) -> Result<()> {
         self.paint(hwnd, frame.dpi, frame.palette, |target, _| draw_flyout(target, frame))
+    }
+
+    pub fn draw_power(
+        &mut self,
+        hwnd: HWND,
+        dpi: u32,
+        palette: &Palette,
+        menu: &super::power_menu::Menu,
+    ) -> Result<()> {
+        use super::power_menu::{Item, PAD, ROW, WIDTH};
+
+        self.paint(hwnd, dpi, palette, |target, formats| {
+            background(target, palette, 1.0);
+            for (index, item) in menu.items().into_iter().enumerate() {
+                let top = PAD + index as f32 * ROW;
+                let bottom = top + ROW;
+                if menu.selection == Some(index) {
+                    unsafe {
+                        target.brush.SetColor(&palette.row_selected);
+                        target.rt.FillRoundedRectangle(
+                            &rounded(rect(PAD, top + 1.0, WIDTH - PAD, bottom - 1.0), TILE_RADIUS),
+                            &target.brush,
+                        );
+                    }
+                }
+                let color = if matches!(item, Item::Prompt(_)) {
+                    palette.subtext
+                } else {
+                    palette.text
+                };
+                control_text(
+                    &target.rt,
+                    &target.brush,
+                    &formats.status_icon,
+                    item.glyph(),
+                    rect(PAD, top, PAD + 34.0, bottom),
+                    palette,
+                    color,
+                );
+                control_text(
+                    &target.rt,
+                    &target.brush,
+                    &formats.menu,
+                    item.title(),
+                    rect(PAD + 38.0, top, WIDTH - PAD - 6.0, bottom),
+                    palette,
+                    color,
+                );
+            }
+            Ok(())
+        })
     }
 
     pub fn draw_tip(&mut self, hwnd: HWND, dpi: u32, palette: &Palette, tip: &str) -> Result<()> {
@@ -883,7 +941,15 @@ fn draw_status(target: &mut Target, formats: &Formats, frame: &Frame) -> Result<
             continue;
         };
         let right = left + frame.layout.part_width(part, frame.layout_scale);
-        if *hover_part == Some(part) || part == Part::Chevron && frame.flyout_open {
+        let disabled = match part {
+            Part::DesktopPrevious => frame.desktop.0 == 0,
+            Part::DesktopNext => frame.desktop.0 + 1 >= frame.desktop.1,
+            _ => false,
+        };
+        if !disabled && part != Part::DesktopNumber && *hover_part == Some(part)
+            || part == Part::Chevron && frame.flyout_open
+            || part == Part::Power && frame.power_open
+        {
             tile(
                 target,
                 frame,
@@ -893,6 +959,21 @@ fn draw_status(target: &mut Target, formats: &Formats, frame: &Frame) -> Result<
             );
         }
         match part {
+            Part::DesktopPrevious | Part::DesktopNumber | Part::DesktopNext => {
+                let scale = frame.layout_scale;
+                let area = rect(left, TILE_TOP * scale, right, TILE_BOTTOM * scale);
+                let (format, label) = match part {
+                    Part::DesktopPrevious => (&formats.chevron, "\u{E76B}".into()),
+                    Part::DesktopNext => (&formats.chevron, "\u{E76C}".into()),
+                    _ => (&formats.time, (frame.desktop.0 + 1).to_string()),
+                };
+                let mut color = p.text;
+                if disabled {
+                    color.a *= 0.38;
+                }
+                control_text(&target.rt, &target.brush, format, &label, area, p, color);
+                continue;
+            }
             Part::Settings | Part::Power => {
                 let glyph = if part == Part::Power {
                     crate::commands::power::Power::ShutDown.glyph()
@@ -1057,7 +1138,13 @@ fn draw_status(target: &mut Target, formats: &Formats, frame: &Frame) -> Result<
                     control_text(rt, brush, &formats.time, &status.time, upper, p, p.text);
                     control_text(rt, brush, &formats.small, &status.date, lower, p, p.subtext);
                 }
-                Part::Chevron | Part::Tray(_) | Part::Settings | Part::Power => {}
+                Part::Chevron
+                | Part::Tray(_)
+                | Part::Settings
+                | Part::Power
+                | Part::DesktopPrevious
+                | Part::DesktopNumber
+                | Part::DesktopNext => {}
             }
         }
     }

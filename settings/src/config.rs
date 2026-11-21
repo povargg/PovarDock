@@ -23,6 +23,7 @@ const MISSING_KEYS: &str = include_str!("../../src/config-0.3.toml");
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
     pub hotkey: String,
+    pub desktop_shortcut: String,
     pub win_key: bool,
     pub max_results: i64,
     pub theme: String,
@@ -128,6 +129,7 @@ impl Config {
         let placement = StatusPlacement::new(&list("dock_status_group")?, &list("dock_status_icons")?);
         Ok(Self {
             hotkey: string("hotkey")?,
+            desktop_shortcut: string("desktop_shortcut")?,
             win_key: boolean("win_key")?,
             max_results,
             theme,
@@ -310,6 +312,9 @@ fn validate_edit(key: &str, value: &Value) -> Result<(), String> {
                 }
                 seen.push(name);
             }
+        }
+        "desktop_shortcut" => {
+            crate::desktop_modifiers(value.as_str().ok_or("Desktop shortcut must be text.")?)?;
         }
         "hotkey" => {
             crate::hotkey::parse(value.as_str().ok_or("Shortcut must be text.")?)?;

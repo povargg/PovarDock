@@ -70,6 +70,7 @@ pub struct Config {
     /// `"pointer"`, `"main"`, or a screen's ID from Settings.
     pub dock_screen: String,
     pub hotkey: String,
+    pub desktop_shortcut: String,
     pub win_key: bool,
     pub max_results: usize,
     pub theme: Theme,

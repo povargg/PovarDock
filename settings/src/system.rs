@@ -47,7 +47,7 @@ pub fn set_autostart(enabled: bool, embedded: bool) -> Result<(), String> {
                 (command.len() * 2) as u32,
             )
             .ok()
-            .map_err(|error| format!("Cannot start Wisp with Windows: {error}"))
+            .map_err(|error| format!("Cannot start PovarDock with Windows: {error}"))
         } else {
             let status = RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, RUN_VALUE);
             if status == ERROR_FILE_NOT_FOUND {
@@ -64,7 +64,7 @@ fn launcher_path(settings_exe: &Path) -> Result<PathBuf, String> {
     settings_exe
         .parent()
         .map(|parent| parent.join("wisp.exe"))
-        .ok_or_else(|| "Cannot find the Wisp folder.".into())
+        .ok_or_else(|| "Cannot find the PovarDock folder.".into())
 }
 
 /// Colors the Windows title bar of this app's window to match the page.

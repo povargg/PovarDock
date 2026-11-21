@@ -24,6 +24,7 @@ pub enum Tip {
     Chevron,
     Settings,
     Power,
+    Desktop(logic::Part),
     /// An icon in the dock, by its inline position.
     Inline(usize),
     /// An icon in the flyout, by its index in `shown`.

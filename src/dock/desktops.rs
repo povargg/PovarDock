@@ -4,12 +4,19 @@
 //! Windows' own shortcut, Ctrl+Win+Left or Right, because the COM interface
 //! for it is undocumented and changes between Windows builds.
 
+use std::time::{Duration, Instant};
+
+use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_BINARY, RRF_RT_REG_SZ, RegGetValueW};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY,
-    VK_LCONTROL, VK_LEFT, VK_LWIN, VK_RIGHT,
+    GetAsyncKeyState, HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
+    KEYEVENTF_KEYUP, MOD_NOREPEAT, RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_CONTROL, VK_LCONTROL,
+    VK_LEFT, VK_LWIN, VK_MENU, VK_RIGHT, VK_RWIN, VK_SHIFT,
 };
 use windows::core::{HSTRING, PCWSTR, w};
+
+pub const HOTKEY_FIRST: usize = 101;
+pub const HOTKEY_COUNT: usize = 9;
 
 const KEY: PCWSTR = w!(r"Software\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops");
 
@@ -19,6 +26,18 @@ pub struct Desktops {
     pub current: usize,
     /// Each desktop's name, or "Desktop n" if the user never named it.
     pub names: Vec<String>,
+}
+
+impl Desktops {
+    pub fn label(&self) -> String {
+        let number = format!("Desktop {}", self.current + 1);
+        let name = &self.names[self.current];
+        if name == &number {
+            number
+        } else {
+            format!("{number} · {name}")
+        }
+    }
 }
 
 /// Reads the desktops. With one desktop, Explorer may not have written the list yet.
@@ -43,6 +62,13 @@ pub fn read() -> Desktops {
         })
         .collect();
     Desktops { current, names }
+}
+
+pub fn coordinates() -> (usize, usize) {
+    position(
+        &reg_binary(KEY, w!("VirtualDesktopIDs")),
+        &reg_binary(KEY, w!("CurrentVirtualDesktop")),
+    )
 }
 
 /// The current desktop's index and the number of desktops, from Explorer's
@@ -73,7 +99,7 @@ fn guid(id: &[u8]) -> String {
 }
 
 /// Shows the next desktop to the right, or to the left.
-pub fn switch(right: bool) {
+pub fn switch(right: bool) -> bool {
     let arrow = if right { VK_RIGHT } else { VK_LEFT };
     let key = |vk: VIRTUAL_KEY, up: bool| {
         let mut flags = if up { KEYEVENTF_KEYUP } else { Default::default() };
@@ -103,6 +129,110 @@ pub fn switch(right: bool) {
     // Fails when an elevated window has the focus; Windows blocks the keys then.
     if unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) } != inputs.len() as u32 {
         eprintln!("Dock desktops: {}", windows::core::Error::from_thread());
+        return false;
+    }
+    true
+}
+
+/// Each hop waits for Explorer to acknowledge the previous one in the registry.
+pub struct Jump {
+    target: usize,
+    deadline: Instant,
+    pending: Option<(usize, Instant)>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Step {
+    Wait,
+    Move(bool),
+    Arrived,
+    Cancel,
+}
+
+impl Jump {
+    pub fn new(target: usize, now: Instant) -> Self {
+        Self {
+            target,
+            deadline: now + Duration::from_secs(6),
+            pending: None,
+        }
+    }
+
+    pub fn retarget(&mut self, target: usize, now: Instant) {
+        self.target = target;
+        self.deadline = now + Duration::from_secs(6);
+    }
+
+    pub fn advance(&mut self, (current, count): (usize, usize), now: Instant, keys_down: bool) -> Step {
+        if self.target >= count || now >= self.deadline {
+            return Step::Cancel;
+        }
+        if let Some((from, expires)) = self.pending {
+            if from == current {
+                return if now < expires { Step::Wait } else { Step::Cancel };
+            }
+            self.pending = None;
+        }
+        if current == self.target {
+            return Step::Arrived;
+        }
+        // An Alt/Shift/Win shortcut can still be physically held when WM_HOTKEY arrives.
+        if keys_down {
+            return Step::Wait;
+        }
+        self.pending = Some((current, now + Duration::from_millis(1500)));
+        Step::Move(current < self.target)
+    }
+}
+
+pub fn modifiers_down() -> bool {
+    [VK_MENU, VK_CONTROL, VK_SHIFT, VK_LWIN, VK_RWIN]
+        .into_iter()
+        .any(|key| unsafe { GetAsyncKeyState(i32::from(key.0)) < 0 })
+}
+
+/// Registers a full bank, or restores the previous one if a key is taken.
+pub fn register_shortcuts(owner: HWND, registered: &mut u32, wanted: u32) -> Result<(), usize> {
+    if *registered == wanted {
+        return Ok(());
+    }
+    let previous = std::mem::take(registered);
+    if previous != 0 {
+        unregister_shortcuts(owner, HOTKEY_COUNT);
+    }
+    match register_bank(owner, wanted) {
+        Ok(()) => {
+            *registered = wanted;
+            Ok(())
+        }
+        Err(key) => {
+            if register_bank(owner, previous).is_ok() {
+                *registered = previous;
+            }
+            Err(key)
+        }
+    }
+}
+
+fn register_bank(owner: HWND, modifiers: u32) -> Result<(), usize> {
+    if modifiers == 0 {
+        return Ok(());
+    }
+    let modifiers = HOT_KEY_MODIFIERS(modifiers) | MOD_NOREPEAT;
+    for index in 0..HOTKEY_COUNT {
+        let id = (HOTKEY_FIRST + index) as i32;
+        let key = u32::from(b'1') + index as u32;
+        if unsafe { RegisterHotKey(Some(owner), id, modifiers, key) }.is_err() {
+            unregister_shortcuts(owner, index);
+            return Err(index + 1);
+        }
+    }
+    Ok(())
+}
+
+fn unregister_shortcuts(owner: HWND, count: usize) {
+    for id in HOTKEY_FIRST..HOTKEY_FIRST + count {
+        let _ = unsafe { UnregisterHotKey(Some(owner), id as i32) };
     }
 }
 
@@ -185,6 +315,29 @@ mod tests {
             0xEE, 0x9E, 0xDA, 0x2E, 0x3A, 0x5A, 0xC0, 0x4C, 0x8A, 0xBD, 0x84, 0x14, 0xB8, 0x76, 0x5F, 0x35,
         ];
         assert_eq!(guid(&id), "{2EDA9EEE-5A3A-4CC0-8ABD-8414B8765F35}");
+    }
+
+    #[test]
+    fn jump_waits_for_released_modifiers_and_real_desktop_changes() {
+        let now = Instant::now();
+        let mut jump = Jump::new(2, now);
+        assert_eq!(jump.advance((0, 3), now, true), Step::Wait);
+        assert_eq!(jump.advance((0, 3), now, false), Step::Move(true));
+        assert_eq!(jump.advance((0, 3), now, false), Step::Wait);
+        assert_eq!(jump.advance((1, 3), now, false), Step::Move(true));
+        assert_eq!(jump.advance((2, 3), now, false), Step::Arrived);
+    }
+
+    #[test]
+    fn jump_handles_retargeting_missing_desktops_and_refused_switches() {
+        let now = Instant::now();
+        let mut jump = Jump::new(2, now);
+        assert_eq!(jump.advance((0, 1), now, false), Step::Cancel);
+        assert_eq!(jump.advance((0, 3), now, false), Step::Move(true));
+        jump.retarget(0, now);
+        assert_eq!(jump.advance((0, 3), now, false), Step::Wait);
+        assert_eq!(jump.advance((1, 3), now, false), Step::Move(false));
+        assert_eq!(jump.advance((1, 3), now + Duration::from_secs(2), false), Step::Cancel);
     }
 
     #[test]

@@ -49,7 +49,7 @@ jobs:
             exit 0
           }
 
-          gh release create $tag ./dist/windock-x64.exe ./dist/SHA256SUMS.txt --verify-tag --draft --title "WinDock $tag" --generate-notes
+          gh release create $tag ./dist/povardock-x64.exe ./dist/windock-x64.exe ./dist/SHA256SUMS.txt --verify-tag --draft --title "PovarDock $tag" --generate-notes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           gh release edit $tag --draft=false
           exit $LASTEXITCODE

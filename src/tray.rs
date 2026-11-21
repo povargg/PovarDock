@@ -57,12 +57,7 @@ thread_local! {
 }
 
 pub fn notify_update(hwnd: HWND, version: &str) {
-    notify(
-        hwnd,
-        "Windock",
-        &format!("Wisp upstream {version} is available."),
-        false,
-    );
+    notify(hwnd, "PovarDock", &format!("PovarDock {version} is available."), false);
     UPDATE_BALLOON.set(true);
 }
 

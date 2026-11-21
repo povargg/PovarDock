@@ -21,12 +21,14 @@ use windows::core::{HSTRING, PCWSTR, Result, w};
 
 use crate::commands::{self, Command, Commands};
 use crate::config::{Config, Position, Theme};
+use crate::dock::desktops;
 use crate::dock::space::DockSpace;
 use crate::dock::{self, Dock};
 use crate::drag::{self, Payload};
 use crate::files::{self, FileResults, FileSearch};
 use crate::history::History;
 use crate::indexer::{AppEntry, IconPixels, IndexEvent, Indexer};
+use crate::messages::WM_DESKTOP_STEP;
 use crate::render::{Frame, Renderer, SurfaceFrame, layout};
 use crate::search::{self, Action, Drill, FileScope, Kind, ResultItem, Searcher};
 use crate::surface::nav::{self, Direction, Rect};
@@ -51,6 +53,7 @@ const HOTKEY_ID: i32 = 1;
 /// How far left of a slider's track, in DIPs, a press still grabs it.
 const SLIDER_GRAB: f32 = 8.0;
 const UPDATE_TIMER: usize = 5;
+const DESKTOP_JUMP_TIMER: usize = 6;
 const CARET_TIMER: usize = 1;
 /// Reads the state again while a surface is open, so it stays live.
 const SURFACE_TIMER: usize = 2;
@@ -162,7 +165,7 @@ pub fn run() -> Result<()> {
             }
             return Err(windows::core::Error::new(
                 E_FAIL,
-                "Windock is running, but its launcher window was not found within 3 s.",
+                "PovarDock is running, but its launcher window was not found within 3 s.",
             ));
         }
         if flag("--quit") {
@@ -243,6 +246,8 @@ pub fn run() -> Result<()> {
             config,
             config_mtime: Config::modified(),
             registered_hotkey: None,
+            desktop_modifiers: 0,
+            desktop_jump: None,
             win_key_hook: None,
             tray_icon: small_icon,
             palette: Palette::new(true, true),
@@ -305,7 +310,7 @@ pub fn run() -> Result<()> {
             }
             capture::start(l);
             if let Some(error) = config_error {
-                tray::notify(l.hwnd, "Windock config", &error, true);
+                tray::notify(l.hwnd, "PovarDock config", &error, true);
             }
             if flag("--show") {
                 l.show();
@@ -376,6 +381,8 @@ struct Launcher {
     config_mtime: Option<SystemTime>,
     /// Registered shortcut; may differ from `config.hotkey` if registration fails.
     registered_hotkey: Option<String>,
+    desktop_modifiers: u32,
+    desktop_jump: Option<desktops::Jump>,
     win_key_hook: Option<crate::win_key::Hook>,
     tray_icon: HICON,
     palette: Palette,
@@ -511,9 +518,65 @@ impl Launcher {
         if !capture::active() {
             self.sync_win_key();
             self.register_hotkey(true);
+            self.register_desktop_shortcuts();
         }
         self.indexer.rescan();
         self.last_scan = Instant::now();
+    }
+
+    fn register_desktop_shortcuts(&mut self) {
+        let message = match wisp_settings::desktop_modifiers(&self.config.desktop_shortcut) {
+            Ok(wanted) => desktops::register_shortcuts(self.hwnd, &mut self.desktop_modifiers, wanted)
+                .err()
+                .map(|key| {
+                    format!(
+                        "Windows could not register {}+{key}. Choose other modifiers in Settings → General.",
+                        self.config.desktop_shortcut,
+                    )
+                }),
+            Err(message) => Some(message),
+        };
+        if let Some(message) = message {
+            tray::notify(self.hwnd, "Virtual desktop shortcuts", &message, true);
+        }
+    }
+
+    fn desktop_step(&mut self, right: bool) {
+        let (index, count) = desktops::coordinates();
+        let target = if right { index + 1 } else { index.saturating_sub(1) };
+        self.go_to_desktop(target.min(count - 1));
+    }
+
+    fn go_to_desktop(&mut self, target: usize) {
+        if target >= desktops::coordinates().1 {
+            return;
+        }
+        let now = Instant::now();
+        if let Some(jump) = &mut self.desktop_jump {
+            jump.retarget(target, now);
+        } else {
+            self.desktop_jump = Some(desktops::Jump::new(target, now));
+        }
+        unsafe { SetTimer(Some(self.hwnd), DESKTOP_JUMP_TIMER, 35, None) };
+        self.advance_desktop_jump();
+    }
+
+    fn advance_desktop_jump(&mut self) {
+        if let Some(jump) = &mut self.desktop_jump {
+            let step = jump.advance(desktops::coordinates(), Instant::now(), desktops::modifiers_down());
+            match step {
+                desktops::Step::Wait => return,
+                desktops::Step::Move(right) if desktops::switch(right) => return,
+                desktops::Step::Arrived => {
+                    if let Some(dock) = &mut self.dock {
+                        dock.desktop_arrived();
+                    }
+                }
+                desktops::Step::Move(_) | desktops::Step::Cancel => {}
+            }
+        }
+        self.desktop_jump = None;
+        let _ = unsafe { KillTimer(Some(self.hwnd), DESKTOP_JUMP_TIMER) };
     }
 
     fn tooltip(&self) -> String {
@@ -547,7 +610,7 @@ impl Launcher {
             Ok(hotkey) => hotkey,
             Err(error) => {
                 if report_errors {
-                    tray::notify(self.hwnd, "Windock config", &error, true);
+                    tray::notify(self.hwnd, "PovarDock config", &error, true);
                 }
                 return;
             }
@@ -612,13 +675,13 @@ impl Launcher {
             Ok(loaded) => loaded,
             Err(error) => {
                 // Keep the last valid config so a read or parse error does not change it.
-                tray::notify(self.hwnd, "Windock config", &error, true);
+                tray::notify(self.hwnd, "PovarDock config", &error, true);
                 return;
             }
         };
         // One value that cannot be used falls back to its default; the rest applies.
         if let Some(warning) = warning {
-            tray::notify(self.hwnd, "Windock config", &warning, true);
+            tray::notify(self.hwnd, "PovarDock config", &warning, true);
         }
         let file_search_changed = config.file_search != self.config.file_search
             || config.file_search_everything != self.config.file_search_everything
@@ -629,6 +692,7 @@ impl Launcher {
         self.apply_theme();
         self.sync_win_key();
         self.register_hotkey(true);
+        self.register_desktop_shortcuts();
         // Search files again with the new settings.
         if file_search_changed {
             self.file_query = None;
@@ -1371,8 +1435,8 @@ impl Launcher {
                 0,
                 ResultItem::new(
                     Kind::Command,
-                    format!("Wisp upstream {version} is available"),
-                    "Open Windock Settings",
+                    format!("PovarDock {version} is available"),
+                    "Open PovarDock Settings",
                     Action::Update,
                 )
                 .glyph("\u{E777}")
@@ -1382,7 +1446,7 @@ impl Launcher {
                 1,
                 ResultItem::new(
                     Kind::Command,
-                    format!("What's new in Wisp {version}"),
+                    format!("What's new in PovarDock {version}"),
                     "Open the release notes",
                     Action::Open(release_notes(version)),
                 )
@@ -2127,7 +2191,7 @@ impl Launcher {
             .collect();
         if !new.is_empty() {
             let message = new.iter().map(|e| e.as_str()).collect::<Vec<_>>().join("\n");
-            tray::notify(self.hwnd, "Windock surfaces", &message, true);
+            tray::notify(self.hwnd, "PovarDock surfaces", &message, true);
         }
         self.surface_errors = self.surfaces.errors.clone();
     }
@@ -2608,6 +2672,7 @@ impl Launcher {
         unsafe {
             let _ = UnregisterHotKey(Some(self.hwnd), HOTKEY_ID);
         }
+        let _ = desktops::register_shortcuts(self.hwnd, &mut self.desktop_modifiers, 0);
         let _span = util::perf::Span::new("quit_tray_icon");
         tray::remove(self.hwnd);
     }
@@ -2725,6 +2790,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     | WM_CLOSE
                     | dock::WM_SHOW_NOW
                     | crate::messages::WM_SHOW_SETTINGS
+                    | WM_DESKTOP_STEP
                     | dock::WM_SHOW_LAUNCHER
                     | dock::WM_DOCK_SHOW_TASKBAR
                     | taskbar::WM_TASKBAR_SHOW
@@ -2817,6 +2883,20 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
         // borrowed, so the dock's own handler above never sees the message.
         WM_NCACTIVATE => return unsafe { DefWindowProcW(hwnd, msg, wparam, LPARAM(-1)) },
         WM_NCHITTEST => return LRESULT(HTCLIENT as isize),
+        WM_HOTKEY if (desktops::HOTKEY_FIRST..desktops::HOTKEY_FIRST + desktops::HOTKEY_COUNT).contains(&wparam.0) => {
+            with_launcher(|l| {
+                // Ignore a queued message from the modifiers that Settings just replaced.
+                if l.desktop_modifiers != 0 && lparam.0 as u32 & 0xf == l.desktop_modifiers {
+                    l.go_to_desktop(wparam.0 - desktops::HOTKEY_FIRST);
+                }
+            });
+        }
+        WM_DESKTOP_STEP => {
+            with_launcher(|l| l.desktop_step(wparam.0 != 0));
+        }
+        WM_TIMER if wparam.0 == DESKTOP_JUMP_TIMER => {
+            with_launcher(Launcher::advance_desktop_jump);
+        }
         WM_HOTKEY => {
             util::perf::input("hotkey_to_content");
             with_launcher(Launcher::toggle);

@@ -1,4 +1,4 @@
-//! Checks WinDock's GitHub releases and updates the portable executable in place.
+//! Checks PovarDock's GitHub releases and updates the portable executable in place.
 //!
 //! The launcher and Settings share an executable. The updater verifies the download
 //! before renaming the current executable to .old and moving the new file into place.
@@ -19,8 +19,8 @@ use windows::{
     core::{PCWSTR, PWSTR, w},
 };
 
-const LATEST_URL: &str = "https://api.github.com/repos/povargg/WinDock/releases/latest";
-const ASSET_NAME: &str = "windock-x64.exe";
+const LATEST_URL: &str = "https://api.github.com/repos/povargg/PovarDock/releases/latest";
+const ASSET_NAME: &str = "povardock-x64.exe";
 const CHECKSUMS_NAME: &str = "SHA256SUMS.txt";
 /// The launcher quits when it receives this message (WM_APP_QUIT in the launcher).
 const LAUNCHER_QUIT: u32 = WM_APP + 4;
@@ -133,7 +133,7 @@ pub fn install(release: &Release) -> Result<PathBuf, String> {
     if launcher_was_running {
         std::process::Command::new(&executable).spawn().map_err(|error| {
             format!(
-                "WinDock was updated. Start it again from {}: {error}",
+                "PovarDock was updated. Start it again from {}: {error}",
                 executable.display()
             )
         })?;
@@ -236,7 +236,7 @@ impl Drop for UpdateLock {
 }
 
 fn current_executable() -> Result<PathBuf, String> {
-    std::env::current_exe().map_err(|error| format!("Cannot locate the running WinDock executable: {error}"))
+    std::env::current_exe().map_err(|error| format!("Cannot locate the running PovarDock executable: {error}"))
 }
 
 fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
@@ -271,7 +271,7 @@ fn stop_launcher(executable: &Path) -> Result<bool, String> {
         let mut pid = 0;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
         let process = OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
-            .map_err(|error| format!("Cannot find the running WinDock: {error}"))?;
+            .map_err(|error| format!("Cannot find the running PovarDock: {error}"))?;
         let result = if !same_file(&process_path(process), executable) {
             Ok(false)
         } else if PostMessageW(Some(hwnd), LAUNCHER_QUIT, WPARAM(0), LPARAM(0)).is_ok()
@@ -279,7 +279,7 @@ fn stop_launcher(executable: &Path) -> Result<bool, String> {
         {
             Ok(true)
         } else {
-            Err("WinDock did not close. Quit it from its notification area icon, then try again.".into())
+            Err("PovarDock did not close. Quit it from its notification area icon, then try again.".into())
         };
         let _ = CloseHandle(process);
         result
@@ -371,7 +371,7 @@ fn get(url: &str) -> Result<Vec<u8>, String> {
     }
 
     unsafe {
-        let agent = wide(format!("WinDock/{}", env!("CARGO_PKG_VERSION")));
+        let agent = wide(format!("PovarDock/{}", env!("CARGO_PKG_VERSION")));
         let session = Handle(WinHttpOpen(
             PCWSTR(agent.as_ptr()),
             WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
@@ -463,7 +463,7 @@ mod tests {
     fn reads_the_release_json() {
         let body = br#"{
             "tag_name": "v0.2.3",
-            "html_url": "https://github.com/povargg/WinDock/releases/tag/v0.2.3",
+            "html_url": "https://github.com/povargg/PovarDock/releases/tag/v0.2.3",
             "assets": [
                 {"name": "SHA256SUMS.txt", "browser_download_url": "https://example.com/sums"},
                 {"name": "broken"}
@@ -478,8 +478,8 @@ mod tests {
 
     #[test]
     fn reads_checksum_lines() {
-        let sums = parse_sums("ABC123  windock-x64.exe\r\ndef456 *notes.txt\r\n");
-        assert_eq!(sums, [("windock-x64.exe", "ABC123"), ("notes.txt", "def456")]);
+        let sums = parse_sums("ABC123  povardock-x64.exe\r\ndef456 *notes.txt\r\n");
+        assert_eq!(sums, [("povardock-x64.exe", "ABC123"), ("notes.txt", "def456")]);
     }
 
     #[test]
@@ -504,7 +504,7 @@ mod tests {
     #[test]
     fn installs_verified_update_at_the_current_filename() {
         let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("My WinDock.exe");
+        let target = dir.path().join("My PovarDock.exe");
         std::fs::write(&target, b"old executable").unwrap();
         let binary = b"new executable";
         let sums = format!("{}  {ASSET_NAME}\n", sha256_hex(binary));
@@ -528,7 +528,7 @@ mod tests {
         let target = dir.path().join(ASSET_NAME);
         std::fs::write(&target, b"old executable").unwrap();
 
-        for sums in ["", "bad-hash  windock-x64.exe\n"] {
+        for sums in ["", "bad-hash  povardock-x64.exe\n"] {
             let result = stage_release(&portable_release(), &target, |url| match url {
                 "sums" => Ok(sums.as_bytes().to_vec()),
                 "exe" => Ok(b"new executable".to_vec()),

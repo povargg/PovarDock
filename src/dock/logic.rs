@@ -508,7 +508,7 @@ impl RowLayout {
                         0.0
                     }
                 }
-                Section::Clock => CLOCK_W + SETTINGS_W + POWER_W,
+                Section::Clock => DESKTOP_W + CLOCK_W + SETTINGS_W + POWER_W,
             } * scale;
             if width == 0.0 {
                 return None;
@@ -564,9 +564,12 @@ impl RowLayout {
             Part::Tray(_) => return None,
             Part::Status => (Section::Status, 0.0),
             Part::Icon(item) => (Section::Icon(item), 0.0),
-            Part::Clock => (Section::Clock, 0.0),
-            Part::Settings => (Section::Clock, CLOCK_W),
-            Part::Power => (Section::Clock, CLOCK_W + SETTINGS_W),
+            Part::DesktopPrevious => (Section::Clock, 0.0),
+            Part::DesktopNumber => (Section::Clock, DESKTOP_ARROW_W),
+            Part::DesktopNext => (Section::Clock, DESKTOP_ARROW_W + DESKTOP_NUMBER_W),
+            Part::Clock => (Section::Clock, DESKTOP_W),
+            Part::Settings => (Section::Clock, DESKTOP_W + CLOCK_W),
+            Part::Power => (Section::Clock, DESKTOP_W + CLOCK_W + SETTINGS_W),
         };
         self.section_left(section, scale).map(|left| left + offset * scale)
     }
@@ -676,6 +679,9 @@ pub fn status_cells(group: [bool; 4]) -> Vec<(StatusItem, f32, f32, f32)> {
     }
     cells
 }
+const DESKTOP_ARROW_W: f32 = 24.0;
+const DESKTOP_NUMBER_W: f32 = 26.0;
+const DESKTOP_W: f32 = 2.0 * DESKTOP_ARROW_W + DESKTOP_NUMBER_W;
 pub const CLOCK_W: f32 = 88.0;
 pub const SETTINGS_W: f32 = 34.0;
 pub const POWER_W: f32 = 34.0;
@@ -714,6 +720,9 @@ pub enum Part {
     Tray(usize),
     Status,
     Icon(StatusItem),
+    DesktopPrevious,
+    DesktopNumber,
+    DesktopNext,
     Clock,
     Settings,
     Power,
@@ -726,6 +735,8 @@ impl Part {
             Part::Tray(_) => TRAY_W,
             Part::Status => STATUS_W,
             Part::Icon(_) => OWN_ICON_W,
+            Part::DesktopPrevious | Part::DesktopNext => DESKTOP_ARROW_W,
+            Part::DesktopNumber => DESKTOP_NUMBER_W,
             Part::Clock => CLOCK_W,
             Part::Settings => SETTINGS_W,
             Part::Power => POWER_W,
@@ -742,7 +753,15 @@ pub fn parts(tray: Option<usize>) -> Vec<Part> {
     let tray = tray.map(|count| std::iter::once(Part::Chevron).chain((0..count.min(MAX_INLINE)).map(Part::Tray)));
     tray.into_iter()
         .flatten()
-        .chain([Part::Status, Part::Clock, Part::Settings, Part::Power])
+        .chain([
+            Part::Status,
+            Part::DesktopPrevious,
+            Part::DesktopNumber,
+            Part::DesktopNext,
+            Part::Clock,
+            Part::Settings,
+            Part::Power,
+        ])
         .collect()
 }
 
@@ -952,7 +971,9 @@ mod tests {
                 end = Some(left + width);
             }
             let clock = row.part_left(Part::Clock, scale).unwrap();
-            assert_eq!(clock, end.unwrap() + SEPARATOR * scale);
+            let previous = row.part_left(Part::DesktopPrevious, scale).unwrap();
+            assert_eq!(previous, end.unwrap() + SEPARATOR * scale);
+            assert_eq!(clock, previous + DESKTOP_W * scale);
             assert_eq!(row.width(scale), clock + (CLOCK_W + SETTINGS_W + POWER_W + PAD) * scale);
         }
         assert_eq!(own_icon_width(StatusItem::Sound, 0.0), 21.0);
@@ -1073,6 +1094,7 @@ mod tests {
                         row.width(scale),
                         (2.0 * PAD
                             + SLOT
+                            + DESKTOP_W
                             + CLOCK_W
                             + SETTINGS_W
                             + POWER_W
@@ -1682,6 +1704,9 @@ mod tests {
                 Part::Tray(0),
                 Part::Tray(1),
                 Part::Status,
+                Part::DesktopPrevious,
+                Part::DesktopNumber,
+                Part::DesktopNext,
                 Part::Clock,
                 Part::Settings,
                 Part::Power,
@@ -1702,12 +1727,31 @@ mod tests {
         assert_eq!(status, chevron + CHEVRON_W + 2.0 * TRAY_W + SEPARATOR);
         assert_eq!(row.part_hit(status - 1.0, 20.0, &tray, 1.0), None);
         // Inline icons are capped; with none, only the chevron shows.
-        assert_eq!(parts(Some(9)).len(), 1 + MAX_INLINE + 4);
+        assert_eq!(parts(Some(9)).len(), 1 + MAX_INLINE + 7);
         assert_eq!(
             parts(Some(0)),
-            [Part::Chevron, Part::Status, Part::Clock, Part::Settings, Part::Power]
+            [
+                Part::Chevron,
+                Part::Status,
+                Part::DesktopPrevious,
+                Part::DesktopNumber,
+                Part::DesktopNext,
+                Part::Clock,
+                Part::Settings,
+                Part::Power
+            ]
         );
         let clock = row.part_left(Part::Clock, 1.0).unwrap();
+        let previous = status + STATUS_W + SEPARATOR;
+        for (offset, part) in [
+            (0.0, Part::DesktopPrevious),
+            (DESKTOP_ARROW_W, Part::DesktopNumber),
+            (DESKTOP_ARROW_W + DESKTOP_NUMBER_W, Part::DesktopNext),
+        ] {
+            assert_eq!(row.part_left(part, 1.0), Some(previous + offset));
+            assert_eq!(row.part_hit(previous + offset + 1.0, 20.0, &tray, 1.0), Some(part));
+        }
+        assert_eq!(clock, previous + DESKTOP_W);
         assert_eq!(row.part_left(Part::Settings, 1.0), Some(clock + CLOCK_W));
         assert_eq!(
             row.part_hit(clock + CLOCK_W + 1.0, 20.0, &tray, 1.0),

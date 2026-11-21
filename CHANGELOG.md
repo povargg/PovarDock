@@ -4,6 +4,12 @@ User-facing changes in each release. Each release on GitHub lists these notes an
 
 ## Unreleased
 
+## 0.10.0 - 2026-11-21
+
+- Renamed to PovarDock and updated the app icon.
+- Added virtual desktop arrows, a desktop number and configurable shortcuts for desktops 1–9.
+- The power menu and its confirmation follow the dock theme.
+
 ## 0.9.0 - 2026-11-18
 
 - First WinDock release with a customized dock, additional themes, emoji search, and a dedicated power menu.

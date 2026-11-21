@@ -66,13 +66,13 @@ mod win_key;
 mod channel {
     use windows::core::{PCWSTR, w};
     pub const NIGHTLY: bool = true;
-    pub const NAME: &str = "Windock capture";
+    pub const NAME: &str = "PovarDock capture";
     pub const DATA_DIR: &str = "wisp-demo";
     pub const LAUNCHER_CLASS: PCWSTR = w!("Wisp.Capture.Launcher");
     pub const INSTANCE_MUTEX: PCWSTR = w!("Local\\Wisp.Capture.SingleInstance");
     pub const RUN_VALUE: PCWSTR = w!("Wisp capture");
-    pub const SETTINGS_NAME: &str = "Windock Settings";
-    pub const WELCOME_NAME: &str = "Welcome to Windock";
+    pub const SETTINGS_NAME: &str = "PovarDock Settings";
+    pub const WELCOME_NAME: &str = "Welcome to PovarDock";
 }
 fn main() {
     if let Err(e) = app::run() {

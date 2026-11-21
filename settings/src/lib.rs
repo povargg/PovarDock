@@ -7,6 +7,9 @@ mod pins;
 #[path = "../../src/channel.rs"]
 mod channel;
 mod config;
+#[path = "../../src/desktop_shortcut.rs"]
+mod desktop_shortcut;
+pub use desktop_shortcut::desktop_modifiers;
 mod hotkey;
 #[path = "../../src/install.rs"]
 mod install;
@@ -24,7 +27,7 @@ mod update;
 mod update_notice;
 
 pub use update::cleanup_previous_update;
-pub const REPOSITORY_URL: &str = "https://github.com/povargg/WinDock";
+pub const REPOSITORY_URL: &str = "https://github.com/povargg/PovarDock";
 
 use gpui_kit::{AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size};
 
@@ -75,7 +78,7 @@ pub fn run(embedded: bool) {
             gpui_kit::open_window(options, cx, |window, cx| {
                 cx.new(|cx| ui::Settings::new(welcome, page.as_deref(), embedded, window, cx))
             })
-            .expect("failed to open Windock Settings");
+            .expect("failed to open PovarDock Settings");
             cx.activate(true);
         });
 }

@@ -673,6 +673,8 @@ fn app_settings_item(query: &str) -> Option<ResultItem> {
         && [
             "wisp",
             "wisp settings",
+            "povardock",
+            "povardock settings",
             "windock",
             "windock settings",
             "settings",
@@ -697,7 +699,7 @@ fn quit_item(query: &str) -> Option<ResultItem> {
     let matches = query.chars().count() >= 3
         && ["quit", "exit"].iter().any(|verb| {
             verb.starts_with(query)
-                || ["windock", "wisp", name.as_str()]
+                || ["povardock", "windock", "wisp", name.as_str()]
                     .iter()
                     .any(|app| format!("{verb} {app}").starts_with(query))
         });
@@ -1111,13 +1113,16 @@ mod tests {
         assert!(titles("re", &state).is_empty());
         let quit = format!("Quit {}", crate::channel::NAME);
         assert_eq!(titles("quit", &state), std::slice::from_ref(&quit));
-        assert_eq!(titles("exit windock", &state), [quit]);
+        assert_eq!(titles("exit windock", &state), std::slice::from_ref(&quit));
+        assert_eq!(titles("exit povardock", &state), [quit]);
         let settings = crate::channel::SETTINGS_NAME.to_string();
         for query in [
             "wisp",
             "wis",
             "wisp settings",
             "wisp set",
+            "povardock",
+            "povardock settings",
             "windock",
             "windock settings",
             "settings",

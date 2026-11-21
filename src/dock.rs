@@ -3,7 +3,7 @@
 #[path = "dock/artwork.rs"]
 mod artwork;
 #[path = "dock/desktops.rs"]
-mod desktops;
+pub(crate) mod desktops;
 #[path = "dock/jump_lists.rs"]
 mod jump_lists;
 #[path = "dock/logic.rs"]
@@ -43,7 +43,8 @@ use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForWindow, GetSystemMetricsForDpi, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, GetCapture, GetDoubleClickTime, GetKeyState, ReleaseCapture, SetCapture, TME_LEAVE,
-    TRACKMOUSEEVENT, TrackMouseEvent, VK_ESCAPE, VK_LBUTTON, VK_RBUTTON, VK_SHIFT,
+    TRACKMOUSEEVENT, TrackMouseEvent, VIRTUAL_KEY, VK_DOWN, VK_ESCAPE, VK_LBUTTON, VK_RBUTTON, VK_RETURN, VK_SHIFT,
+    VK_SPACE, VK_TAB, VK_UP,
 };
 use windows::Win32::UI::Input::{RAWINPUTDEVICE, RIDEV_INPUTSINK, RIDEV_REMOVE, RegisterRawInputDevices};
 use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, SHGetPropertyStoreForWindow};
@@ -139,8 +140,13 @@ struct Item {
 /// keeps painting and updating, and Windows can't reenter a borrowed state.
 enum Outside {
     AppMenu(Box<AppMenu>),
-    Chevron { owner: HWND },
-    Power { owner: HWND, anchor: RECT },
+    Chevron {
+        owner: HWND,
+    },
+    Power {
+        owner: HWND,
+        action: crate::commands::power::Power,
+    },
     Launch(Launch),
 }
 
@@ -157,8 +163,8 @@ impl Outside {
                 chevron_track(hwnd, owner);
                 None
             }
-            Outside::Power { owner, anchor } => {
-                power_menu::track(hwnd, owner, anchor);
+            Outside::Power { owner, action } => {
+                power_menu::run(owner, action);
                 None
             }
             Outside::Launch(launch) => {
@@ -348,6 +354,7 @@ enum Popup {
     Flyout = 1,
     Tip = 2,
     Windows = 3,
+    Power = 4,
 }
 
 struct WindowId {
@@ -478,6 +485,7 @@ struct State {
     desktop_switched: Option<Instant>,
     /// The desktops the pill above the dock shows, while it shows.
     desktop_pill: Option<desktops::Desktops>,
+    desktops: desktops::Desktops,
     /// The dock's left edge on screen, in physical pixels.
     left: i32,
     width: i32,
@@ -492,6 +500,9 @@ struct State {
     flyout_open: bool,
     flyout_hover: Option<usize>,
     flyout_renderer: render::Renderer,
+    power_popup: HWND,
+    power_menu: Option<power_menu::Menu>,
+    power_renderer: render::Renderer,
     tip: HWND,
     tip_renderer: render::Renderer,
     /// What the pointer rests on, and the text the tooltip shows for it.
@@ -790,6 +801,7 @@ impl Dock {
             desktop_travel: 0,
             desktop_switched: None,
             desktop_pill: None,
+            desktops: desktops::read(),
             left: 0,
             width: 0,
             surface_rect: None,
@@ -800,6 +812,9 @@ impl Dock {
             flyout_open: false,
             flyout_hover: None,
             flyout_renderer: render::Renderer::new()?,
+            power_popup: HWND::default(),
+            power_menu: None,
+            power_renderer: render::Renderer::new()?,
             tip: HWND::default(),
             tip_renderer: render::Renderer::new()?,
             tip_target: None,
@@ -841,7 +856,7 @@ impl Dock {
                 CreateWindowExW(
                     WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
                     class.lpszClassName,
-                    w!("Windock Dock"),
+                    w!("PovarDock Dock"),
                     WS_POPUP | WS_CAPTION,
                     0,
                     0,
@@ -881,16 +896,17 @@ impl Dock {
         for (kind, style, title) in [
             // The flyout takes focus, for Esc and closing on a click elsewhere.
             (Popup::Flyout, WS_EX_TOOLWINDOW | WS_EX_TOPMOST, w!("Notification area")),
+            (Popup::Power, WS_EX_TOOLWINDOW | WS_EX_TOPMOST, w!("PovarDock Power")),
             (
                 Popup::Tip,
                 WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
-                w!("Windock Dock tooltip"),
+                w!("PovarDock Dock tooltip"),
             ),
             // The window list takes clicks, but not the focus.
             (
                 Popup::Windows,
                 WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
-                w!("Windock Dock windows"),
+                w!("PovarDock Dock windows"),
             ),
         ] {
             let window = unsafe {
@@ -916,6 +932,7 @@ impl Dock {
             let mut s = dock.state.borrow_mut();
             match kind {
                 Popup::Flyout => s.flyout = window,
+                Popup::Power => s.power_popup = window,
                 Popup::Tip => s.tip = window,
                 Popup::Windows => s.windows = window,
             }
@@ -1218,6 +1235,15 @@ impl Dock {
         });
     }
 
+    pub fn desktop_arrived(&mut self) {
+        self.update(Some("desktop_arrived"), |s| {
+            s.refresh_desktops();
+            if s.visible && !s.suspended && !s.fullscreen {
+                s.show_desktops(s.desktops.clone());
+            }
+        });
+    }
+
     pub fn refresh(&mut self) {
         self.update(Some("refresh"), move |s| {
             s.refresh();
@@ -1428,6 +1454,8 @@ impl State {
             tray,
             inline,
             flyout_open,
+            power_menu,
+            desktops,
             ..
         } = self;
         let frame = &render::Frame {
@@ -1449,6 +1477,8 @@ impl State {
             tray,
             inline,
             flyout_open: *flyout_open,
+            power_open: power_menu.is_some(),
+            desktop: (desktops.current, desktops.names.len()),
         };
         match rt {
             Some(rt) => renderer.draw_on(rt, frame),
@@ -1466,7 +1496,7 @@ impl State {
             let _ = InvalidateRect(Some(self.hwnd), None, false);
         }
         // Popups over the dock (flyouts, tooltips, window lists) wear the same color.
-        for hwnd in [self.flyout, self.tip, self.windows] {
+        for hwnd in [self.flyout, self.power_popup, self.tip, self.windows] {
             crate::theme::apply_backdrop(hwnd, key, true);
             unsafe {
                 let _ = InvalidateRect(Some(hwnd), None, false);
@@ -1491,6 +1521,7 @@ impl State {
             }
             return;
         }
+        self.refresh_desktops();
         let before = self.layout_unchanged_ok.then(|| items_key(&self.items));
         let windows = open_windows::list();
         let pins = pins_key(&self.pinned);
@@ -1639,6 +1670,7 @@ impl State {
 
     fn retract(&mut self) {
         self.finish_press(false);
+        self.close_power_popup();
         self.close_flyout();
         self.hide_tip();
         self.hide_windows();
@@ -1800,6 +1832,7 @@ impl State {
             return;
         }
         self.listen(false);
+        self.refresh_desktops();
         // Once the dock hides, a resting pointer counts its rest afresh.
         self.still_polls = 0;
         if self.autohide && self.poll_ms != POLL_MS {
@@ -1808,17 +1841,23 @@ impl State {
         }
         let mut rect = RECT::default();
         let _ = unsafe { GetWindowRect(self.hwnd, &mut rect) };
-        if self.flyout_open && !self.held {
+        if (self.flyout_open || self.power_menu.is_some()) && !self.held {
             // Activation closes the flyout on a click elsewhere; this covers
             // clicks while it could not take the foreground.
             let pressed =
                 unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0 || GetAsyncKeyState(VK_RBUTTON.0 as i32) < 0 };
             let mut flyout = RECT::default();
-            let _ = unsafe { GetWindowRect(self.flyout, &mut flyout) };
+            let popup = if self.power_menu.is_some() {
+                self.power_popup
+            } else {
+                self.flyout
+            };
+            let _ = unsafe { GetWindowRect(popup, &mut flyout) };
             let inside =
                 |r: &RECT| cursor.x >= r.left && cursor.x < r.right && cursor.y >= r.top && cursor.y < r.bottom;
             if pressed && !inside(&flyout) && !inside(&rect) {
                 self.close_flyout();
+                self.close_power_popup();
             }
         }
         let slack = (12 * self.dpi / 96) as i32;
@@ -1838,6 +1877,7 @@ impl State {
             || self.held
             || self.press.is_some()
             || self.flyout_open
+            || self.power_menu.is_some()
             || over_windows
             || cursor.x >= rect.left - slack && cursor.x < rect.right + slack && cursor.y >= rect.top - slack;
         if near {
@@ -1856,7 +1896,8 @@ impl State {
         if !self.autohide {
             // Nothing to count: only fullscreen apps and clicks away from the
             // flyout matter, and the flyout and window list need a quick answer.
-            let busy = self.press.is_some() || self.flyout_open || windows_open || self.held;
+            let busy =
+                self.press.is_some() || self.flyout_open || self.power_menu.is_some() || windows_open || self.held;
             self.set_poll(if busy { POLL_MS } else { QUIET_POLL_MS });
         }
     }
@@ -2209,6 +2250,9 @@ impl State {
         if self.flyout_open {
             self.layout_flyout();
         }
+        if self.power_menu.is_some() {
+            self.layout_power_popup();
+        }
         if unsafe { IsWindowVisible(self.tip) }.as_bool() {
             self.show_tip();
         }
@@ -2308,7 +2352,7 @@ impl State {
             Some(tray::Tip::Inline(i)) => i >= self.inline.len(),
             Some(tray::Tip::Flyout(i)) => i >= self.tray.len(),
             Some(tray::Tip::Chevron) => self.tray_host.is_none(),
-            Some(tray::Tip::Status(_) | tray::Tip::Settings | tray::Tip::Power) => false,
+            Some(tray::Tip::Status(_) | tray::Tip::Settings | tray::Tip::Power | tray::Tip::Desktop(_)) => false,
             // The desktop pill has nothing to do with the tray.
             None => false,
         };
@@ -2349,6 +2393,65 @@ impl State {
         self.show_tip();
         unsafe {
             let _ = InvalidateRect(Some(self.flyout), None, false);
+        }
+    }
+
+    fn toggle_power_popup(&mut self) {
+        if self.power_menu.is_some() {
+            self.close_power_popup();
+            return;
+        }
+        self.hide_tip();
+        self.power_menu = Some(power_menu::Menu::default());
+        self.layout_power_popup();
+        unsafe {
+            let _ = ShowWindow(self.power_popup, SW_SHOW);
+            let _ = SetForegroundWindow(self.power_popup);
+            let _ = InvalidateRect(Some(self.hwnd), None, false);
+        }
+        self.set_poll(POLL_MS);
+    }
+
+    fn layout_power_popup(&self) {
+        let Some(anchor) = self.part_rect(logic::Part::Power) else {
+            return;
+        };
+        let px = |size: f32| (size * self.dpi as f32 / 96.0).round() as i32;
+        let width = px(power_menu::WIDTH);
+        let height = px(power_menu::HEIGHT);
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        unsafe {
+            let monitor = MonitorFromRect(&anchor, MONITOR_DEFAULTTONEAREST);
+            let x = if GetMonitorInfoW(monitor, &mut info).as_bool() {
+                ((anchor.left + anchor.right - width) / 2).clamp(
+                    info.rcMonitor.left,
+                    (info.rcMonitor.right - width).max(info.rcMonitor.left),
+                )
+            } else {
+                anchor.right - width
+            };
+            let y = anchor.top - px(6.0) - height;
+            let _ = SetWindowPos(
+                self.power_popup,
+                Some(HWND_TOPMOST),
+                x,
+                y,
+                width,
+                height,
+                SWP_NOACTIVATE,
+            );
+        }
+    }
+
+    fn close_power_popup(&mut self) {
+        if self.power_menu.take().is_some() {
+            unsafe {
+                let _ = ShowWindow(self.power_popup, SW_HIDE);
+                let _ = InvalidateRect(Some(self.hwnd), None, false);
+            }
         }
     }
 
@@ -2464,7 +2567,7 @@ impl State {
     /// The pointer rests on `target`; its tooltip follows after a moment.
     fn hover_tip(&mut self, target: Option<tray::Tip>) {
         // The open flyout already shows what the chevron's tooltip offers.
-        let target = target.filter(|&t| !(t == tray::Tip::Chevron && self.flyout_open));
+        let target = target.filter(|&t| !(t == tray::Tip::Chevron && self.flyout_open || self.power_menu.is_some()));
         if self.tip_target == target || self.held {
             return;
         }
@@ -2713,6 +2816,14 @@ impl State {
                 self.part_rect(logic::Part::Settings),
             ),
             Some(tray::Tip::Power) => ("Power".into(), self.part_rect(logic::Part::Power)),
+            Some(tray::Tip::Desktop(part)) => {
+                let label = match part {
+                    logic::Part::DesktopPrevious => "Previous desktop".into(),
+                    logic::Part::DesktopNext => "Next desktop".into(),
+                    _ => self.desktops.label(),
+                };
+                (label, self.part_rect(part))
+            }
             Some(tray::Tip::Inline(i)) => (
                 self.inline
                     .get(i)
@@ -2807,6 +2918,11 @@ impl State {
                 }
                 return None;
             }
+            logic::Part::DesktopPrevious | logic::Part::DesktopNext => {
+                self.step_desktop(part == logic::Part::DesktopNext);
+                return None;
+            }
+            logic::Part::DesktopNumber => return None,
             logic::Part::Clock => "ms-actioncenter:",
             logic::Part::Settings => {
                 unsafe {
@@ -2820,10 +2936,8 @@ impl State {
                 return None;
             }
             logic::Part::Power => {
-                return self.part_rect(part).map(|anchor| Outside::Power {
-                    owner: self.owner,
-                    anchor,
-                });
+                self.toggle_power_popup();
+                return None;
             }
         };
         if let Err(error) = crate::launch::open(target) {
@@ -2842,28 +2956,38 @@ impl State {
         let (step, travel) = logic::wheel_desktop(self.desktop_travel, delta);
         self.desktop_travel = travel;
         let Some(right) = step else { return };
-        // Explorer updates its list after the switch, so a showing pill knows better.
-        let mut desktops = self.desktop_pill.take().unwrap_or_else(desktops::read);
-        let target = if right {
-            desktops.current + 1
-        } else {
-            desktops.current.wrapping_sub(1)
+        self.step_desktop(right);
+        self.desktop_switched = Some(Instant::now());
+    }
+
+    fn step_desktop(&self, right: bool) {
+        let _ = unsafe {
+            PostMessageW(
+                Some(self.owner),
+                crate::messages::WM_DESKTOP_STEP,
+                WPARAM(usize::from(right)),
+                LPARAM(0),
+            )
         };
-        // Like Windows, the ends don't wrap around. The pill still shows where you are.
-        if target < desktops.names.len() {
-            desktops::switch(right);
-            desktops.current = target;
-            self.desktop_switched = Some(Instant::now());
+    }
+
+    fn refresh_desktops(&mut self) {
+        if desktops::coordinates() == (self.desktops.current, self.desktops.names.len()) {
+            return;
         }
-        self.show_desktops(desktops);
+        self.desktops = desktops::read();
+        if self.desktop_pill.is_some() {
+            self.show_desktops(self.desktops.clone());
+        }
+        let _ = unsafe { InvalidateRect(Some(self.hwnd), None, false) };
     }
 
     /// Shows the desktops in a pill above the dock for a moment.
     fn show_desktops(&mut self, desktops: desktops::Desktops) {
         self.hide_windows();
         self.tip_target = None;
-        let name = &desktops.names[desktops.current];
-        let Ok((width, height)) = self.tip_renderer.measure_desktops(desktops.names.len(), name) else {
+        let name = desktops.label();
+        let Ok((width, height)) = self.tip_renderer.measure_desktops(desktops.names.len(), &name) else {
             return;
         };
         let scale = self.dpi as f32 / 96.0;
@@ -2878,7 +3002,7 @@ impl State {
                 self.tip,
                 Some(HWND_TOPMOST),
                 (dock.left + dock.right - width) / 2,
-                dock.top - gap - height,
+                self.top - gap - height,
                 width,
                 height,
                 SWP_NOACTIVATE | SWP_SHOWWINDOW,
@@ -3147,7 +3271,14 @@ impl State {
             // Notification icons keep their app-owned click behavior.
             if matches!(
                 self.hit_part(lp),
-                Some(logic::Part::Tray(_) | logic::Part::Settings | logic::Part::Power)
+                Some(
+                    logic::Part::Tray(_)
+                        | logic::Part::Settings
+                        | logic::Part::Power
+                        | logic::Part::DesktopPrevious
+                        | logic::Part::DesktopNumber
+                        | logic::Part::DesktopNext
+                )
             ) {
                 return;
             }
@@ -3718,6 +3849,11 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                         Some(logic::Part::Chevron) => Some(tray::Tip::Chevron),
                         Some(logic::Part::Settings) => Some(tray::Tip::Settings),
                         Some(logic::Part::Power) => Some(tray::Tip::Power),
+                        Some(
+                            part @ (logic::Part::DesktopPrevious
+                            | logic::Part::DesktopNumber
+                            | logic::Part::DesktopNext),
+                        ) => Some(tray::Tip::Desktop(part)),
                         Some(logic::Part::Tray(i)) => Some(tray::Tip::Inline(i)),
                         _ => None,
                     });
@@ -3753,6 +3889,9 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                     if s.hit_part(lp) != Some(logic::Part::Chevron) {
                         s.close_flyout();
                     }
+                    if s.hit_part(lp) != Some(logic::Part::Power) {
+                        s.close_power_popup();
+                    }
                     s.hide_windows();
                     let mut outside = None;
                     if let Some(index) = s.hit(lp) {
@@ -3772,6 +3911,7 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                 WM_RBUTTONUP => {
                     s.finish_press(false);
                     s.close_flyout();
+                    s.close_power_popup();
                     s.hide_windows();
                     let mut outside = None;
                     if let Some(index) = s.hit(lp) {
@@ -3905,6 +4045,9 @@ unsafe fn popup_wndproc_inner(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> L
         };
         // Known without the state, which may be busy.
         let kind = GetWindowLongPtrW(hwnd, WINDOW_LONG_PTR_INDEX(0));
+        if kind == Popup::Power as isize {
+            return power_popup_message(cell, hwnd, msg, wp, lp);
+        }
         let tip = kind == Popup::Tip as isize;
         if tip {
             // The tooltip never takes the pointer or the focus.
@@ -4017,13 +4160,7 @@ unsafe fn popup_wndproc_inner(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> L
                     ..
                 } = &mut *s;
                 let result = if let Some(pill) = desktop_pill.as_ref().filter(|_| tip) {
-                    tip_renderer.draw_desktops(
-                        hwnd,
-                        *dpi,
-                        palette,
-                        (pill.current, pill.names.len()),
-                        &pill.names[pill.current],
-                    )
+                    tip_renderer.draw_desktops(hwnd, *dpi, palette, (pill.current, pill.names.len()), &pill.label())
                 } else if tip {
                     tip_renderer.draw_tip(hwnd, *dpi, palette, tip_text)
                 } else {
@@ -4117,6 +4254,93 @@ impl Drop for State {
             }
         }
     }
+}
+
+fn power_popup_message(cell: &StateCell, hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    use power_menu::Choice;
+
+    let Ok(mut state) = cell.try_borrow_mut() else {
+        return unsafe { DefWindowProcW(hwnd, msg, wp, lp) };
+    };
+    let s = &mut *state;
+    let scale = s.dpi as f32 / 96.0;
+    let x = (lp.0 as i16) as f32 / scale;
+    let y = ((lp.0 >> 16) as i16) as f32 / scale;
+    let handled = LRESULT(0);
+    unsafe {
+        match msg {
+            WM_NCHITTEST => return LRESULT(HTCLIENT as isize),
+            WM_PAINT => {
+                let mut paint = PAINTSTRUCT::default();
+                let _ = BeginPaint(hwnd, &mut paint);
+                if let Some(menu) = &s.power_menu
+                    && let Err(error) = s.power_renderer.draw_power(hwnd, s.dpi, &s.palette, menu)
+                {
+                    eprintln!("Dock power menu: {error}");
+                }
+                let _ = EndPaint(hwnd, &paint);
+                return handled;
+            }
+            WM_CLOSE => {
+                s.close_power_popup();
+                return handled;
+            }
+            WM_ACTIVATE if wp.0 & 0xFFFF == WA_INACTIVE as usize => {
+                let _ = PostMessageW(Some(hwnd), WM_CLOSE_FLYOUT, WPARAM(0), LPARAM(0));
+            }
+            WM_CLOSE_FLYOUT if GetForegroundWindow() != hwnd => {
+                s.close_power_popup();
+                return handled;
+            }
+            _ => {}
+        }
+        let Some(menu) = &mut s.power_menu else {
+            return DefWindowProcW(hwnd, msg, wp, lp);
+        };
+        let choice = match msg {
+            WM_MOUSEMOVE => {
+                let selection = menu.hit(x, y);
+                if menu.selection != selection {
+                    menu.selection = selection;
+                    let _ = InvalidateRect(Some(hwnd), None, false);
+                }
+                let _ = TrackMouseEvent(&mut TRACKMOUSEEVENT {
+                    cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
+                    dwFlags: TME_LEAVE,
+                    hwndTrack: hwnd,
+                    dwHoverTime: 0,
+                });
+                return handled;
+            }
+            WM_MOUSELEAVE => {
+                menu.selection = None;
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                return handled;
+            }
+            WM_LBUTTONUP => menu.choose(menu.hit(x, y)),
+            WM_KEYDOWN => match VIRTUAL_KEY(wp.0 as u16) {
+                VK_UP | VK_DOWN | VK_TAB => {
+                    menu.navigate(wp.0 != VK_UP.0 as usize);
+                    Choice::Stay
+                }
+                VK_RETURN | VK_SPACE => menu.choose(menu.selection),
+                VK_ESCAPE => Choice::Close,
+                _ => return handled,
+            },
+            _ => return DefWindowProcW(hwnd, msg, wp, lp),
+        };
+        if choice == Choice::Stay {
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        } else {
+            s.close_power_popup();
+            let (dock, owner) = (s.hwnd, s.owner);
+            drop(state);
+            if let Choice::Run(action) = choice {
+                cell.run_outside(dock, Outside::Power { owner, action });
+            }
+        }
+    }
+    handled
 }
 
 #[cfg(test)]

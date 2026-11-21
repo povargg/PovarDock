@@ -1,7 +1,7 @@
-//! Embeds the Windock icon and product metadata.
+//! Embeds the PovarDock icon and product metadata.
 
 fn main() {
-    println!("cargo:rerun-if-changed=assets/windock.ico");
+    println!("cargo:rerun-if-changed=assets/povardock.ico");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         let source = "assets/liquid-glass.hlsl";
         println!("cargo:rerun-if-changed={source}");
@@ -23,14 +23,14 @@ fn main() {
         let mut res = winresource::WindowsResource::new();
         let nightly = std::env::var_os("CARGO_FEATURE_NIGHTLY").is_some();
         // Resource ID 1 is used by the launcher and system tray.
-        res.set_icon_with_id("assets/windock.ico", "1");
+        res.set_icon_with_id("assets/povardock.ico", "1");
         res.set(
             "FileDescription",
-            &format!("Windock{}", if nightly { " (Nightly)" } else { "" }),
+            &format!("PovarDock{}", if nightly { " (Nightly)" } else { "" }),
         );
-        res.set("ProductName", if nightly { "Windock Nightly" } else { "Windock" });
-        res.set("InternalName", "Windock");
-        res.set("OriginalFilename", "windock.exe");
+        res.set("ProductName", if nightly { "PovarDock Nightly" } else { "PovarDock" });
+        res.set("InternalName", "PovarDock");
+        res.set("OriginalFilename", "povardock-x64.exe");
         res.set("LegalCopyright", "Copyright (c) 2026 Sumir Seth. MIT License.");
         for (id, path) in [
             (100, "LICENSE"),

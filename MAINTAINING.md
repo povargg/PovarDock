@@ -1,6 +1,6 @@
-# Maintaining WinDock
+# Maintaining PovarDock
 
-The `windock` branch carries WinDock. Releases pair `windock-x64.exe` with
+The `povardock` branch carries PovarDock. Releases pair `povardock-x64.exe` with
 `SHA256SUMS.txt`. See [Build from source](README.md#build-from-source) for the
 current package and tag commands.
 

@@ -24,7 +24,7 @@ use crate::{
     screens, system, update,
 };
 
-const APP_ICON: &[u8] = include_bytes!("../../assets/windock.png");
+const APP_ICON: &[u8] = include_bytes!("../../assets/povardock.png");
 
 /// Config values and the labels the dropdowns show for them.
 const THEMES: [(&str, &str); 3] = [("system", "System"), ("dark", "Dark"), ("light", "Light")];
@@ -33,6 +33,24 @@ const WINDOW_LISTS: [(&str, &str); 3] = [
     ("multiple", "Only for multiple windows"),
     ("always", "Always"),
     ("off", "Off"),
+];
+const DESKTOP_SHORTCUTS: [(&str, &str); 16] = [
+    ("Alt", "Alt"),
+    ("Ctrl", "Ctrl"),
+    ("Shift", "Shift"),
+    ("Win", "Win"),
+    ("Ctrl+Alt", "Ctrl + Alt"),
+    ("Ctrl+Shift", "Ctrl + Shift"),
+    ("Alt+Shift", "Alt + Shift"),
+    ("Ctrl+Win", "Ctrl + Win"),
+    ("Alt+Win", "Alt + Win"),
+    ("Shift+Win", "Shift + Win"),
+    ("Ctrl+Alt+Shift", "Ctrl + Alt + Shift"),
+    ("Ctrl+Alt+Win", "Ctrl + Alt + Win"),
+    ("Ctrl+Shift+Win", "Ctrl + Shift + Win"),
+    ("Alt+Shift+Win", "Alt + Shift + Win"),
+    ("Ctrl+Alt+Shift+Win", "Ctrl + Alt + Shift + Win"),
+    ("", "Off"),
 ];
 const ONBOARDING_STEPS: usize = 3;
 /// Dock color presets as `0xRRGGBBAA`. Each brings its own strength, so one
@@ -101,6 +119,7 @@ pub struct Settings {
     /// `Some(step)` while the one-time onboarding is showing.
     onboarding: Option<usize>,
     shortcut: Entity<InputState>,
+    desktop_shortcut: Entity<Choices>,
     url: Entity<InputState>,
     folder: Entity<InputState>,
     theme: Entity<Choices>,
@@ -208,6 +227,14 @@ fn index_of(choices: &[(&str, &str)], value: &str) -> Option<IndexPath> {
     choices.iter().position(|(v, _)| *v == value).map(IndexPath::new)
 }
 
+fn desktop_shortcut_index(value: &str) -> Option<IndexPath> {
+    let mask = crate::desktop_modifiers(value).ok()?;
+    DESKTOP_SHORTCUTS
+        .iter()
+        .position(|(key, _)| crate::desktop_modifiers(key) == Ok(mask))
+        .map(IndexPath::new)
+}
+
 fn palette_index(palette: PortfolioPalette) -> Option<IndexPath> {
     PortfolioPalette::CHOICES
         .iter()
@@ -237,6 +264,14 @@ impl Settings {
             Err(error) => (None, Config::default(), Some(error)),
         };
         let shortcut = cx.new(|cx| InputState::new(window, cx).default_value(config.hotkey.clone()));
+        let desktop_shortcut = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(labels(&DESKTOP_SHORTCUTS)),
+                desktop_shortcut_index(&config.desktop_shortcut),
+                window,
+                cx,
+            )
+        });
         let url = cx.new(|cx| InputState::new(window, cx).default_value(config.search_url.clone()));
         let folder = cx.new(|cx| InputState::new(window, cx).placeholder("Folder name"));
         let theme = cx.new(|cx| {
@@ -383,6 +418,14 @@ impl Settings {
             })
             .detach();
         }
+        cx.subscribe_in(&desktop_shortcut, window, |this, _, event, window, cx| {
+            if let SelectEvent::Confirm(Some(label)) = event
+                && let Some(value) = value_of(&DESKTOP_SHORTCUTS, label)
+            {
+                this.save("desktop_shortcut", value.into(), window, cx);
+            }
+        })
+        .detach();
         cx.subscribe_in(&backdrop, window, |this, _, event, window, cx| {
             if let SelectEvent::Confirm(Some(label)) = event
                 && let Some(value) = value_of(&BACKDROPS, label)
@@ -456,6 +499,7 @@ impl Settings {
                 .unwrap_or(Page::General),
             onboarding: welcome.then_some(0),
             shortcut,
+            desktop_shortcut,
             url,
             folder,
             theme,
@@ -713,6 +757,9 @@ impl Settings {
                 self.shortcut
                     .update(cx, |input, cx| input.set_value(hotkey, window, cx));
                 self.url.update(cx, |input, cx| input.set_value(url, window, cx));
+                let desktop = desktop_shortcut_index(&self.config.desktop_shortcut);
+                self.desktop_shortcut
+                    .update(cx, |state, cx| state.set_selected_index(desktop, window, cx));
                 let theme = index_of(&THEMES, &self.config.theme);
                 self.theme
                     .update(cx, |state, cx| state.set_selected_index(theme, window, cx));
@@ -887,7 +934,7 @@ impl Settings {
             Updates::Available(release) => {
                 let page = release.page.clone();
                 (
-                    format!("WinDock {} is available.", release.version()).into(),
+                    format!("PovarDock {} is available.", release.version()).into(),
                     h_flex()
                         .gap_2()
                         .child(
@@ -905,11 +952,11 @@ impl Settings {
                         .into_any_element(),
                 )
             }
-            Updates::Installing => ("WinDock restarts when it is done.".into(), busy("Updating…")),
+            Updates::Installing => ("PovarDock restarts when it is done.".into(), busy("Updating…")),
             Updates::Installed { version, executable } => {
                 let executable = executable.clone();
                 (
-                    format!("WinDock {version} is installed.").into(),
+                    format!("PovarDock {version} is installed.").into(),
                     Button::new("restart-settings")
                         .primary()
                         .label("Restart Settings")
@@ -962,7 +1009,7 @@ impl Settings {
                 .text_color(p.muted)
                 .hover(|s| s.bg(p.surface).text_color(p.fg))
                 .child(div().size(px(6.)).rounded_full().bg(p.accent))
-                .child(format!("Wisp upstream {} is available", release.version()))
+                .child(format!("PovarDock {} is available", release.version()))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.page = Page::About;
                     this.recording = false;
@@ -1120,7 +1167,7 @@ impl Settings {
     fn win_key_row(&self, p: Palette, cx: &mut Context<Self>) -> Div {
         row(
             "Use Win key",
-            "Tap the Windows key alone to open Windock instead of Start.",
+            "Tap the Windows key alone to open PovarDock instead of Start.",
             Switch::new("win-key")
                 .checked(self.config.win_key)
                 .accessibility_label("Use Win key")
@@ -1143,7 +1190,16 @@ impl Settings {
                             .children(self.conflict_warning(p)),
                     )
                     .child(divider(p))
-                    .child(self.win_key_row(p, cx)),
+                    .child(self.win_key_row(p, cx))
+                    .child(divider(p))
+                    .child(row(
+                        "Switch virtual desktops",
+                        "Hold these keys and press 1–9 to go to that desktop.",
+                        Select::new(&self.desktop_shortcut)
+                            .accessibility_label("Virtual desktop shortcut modifiers")
+                            .w(px(190.)),
+                        p,
+                    )),
             )
             .child(div().h_3())
             .child(label("Dock", p))
@@ -1230,7 +1286,7 @@ impl Settings {
                     .child(divider(p))
                     .child(row(
                         "Hide the taskbar",
-                        "The taskbar comes back when Windock quits.",
+                        "The taskbar comes back when PovarDock quits.",
                         Switch::new("hide-taskbar")
                             .checked(self.config.hide_taskbar)
                             .accessibility_label("Hide the taskbar")
@@ -1441,7 +1497,7 @@ impl Settings {
                     ))
                     .child(divider(p))
                     .child(
-                        item("Web search URL", "Windock replaces {query} with your search text.", p)
+                        item("Web search URL", "PovarDock replaces {query} with your search text.", p)
                             .child(Input::new(&self.url).aria_label("Web search URL"))
                             .children(self.url_error.as_ref().map(|e| error_text(e, p))),
                     ),
@@ -1530,8 +1586,8 @@ impl Settings {
                     ))
                     .child(divider(p))
                     .child(row(
-                        "WinDock on GitHub",
-                        "github.com/povargg/WinDock",
+                        "PovarDock on GitHub",
+                        "github.com/povargg/PovarDock",
                         Button::new("github")
                             .label("Open")
                             .on_click(|_, _, cx| cx.open_url(crate::REPOSITORY_URL)),
@@ -1654,7 +1710,7 @@ impl Settings {
                         p,
                     )))
                     .child(hint(
-                        "Open Settings with the gear beside the clock or from the Windock tray icon.",
+                        "Open Settings with the gear beside the clock or from the PovarDock tray icon.",
                         p,
                     )),
             ),
