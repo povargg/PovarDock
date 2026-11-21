@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/povardock.png" width="112" alt="PovarDock icon">
+  <img src="assets/povardock-transparent.png" width="112" alt="PovarDock icon">
 </p>
 
 <h1 align="center">PovarDock</h1>
@@ -30,7 +30,7 @@ appearance, and the way it fits into everyday work. [Original Wisp project](http
 | **Dock and tray** | Pin and reorder apps, switch between windows, open Jump Lists, and arrange the dock's sections. Choose a display and keep the dock visible or let it hide. |
 | **System controls** | Reach the clock, volume, media, battery, Wi-Fi, and Bluetooth from the dock. The power menu gives you quick access to sleep, restart, and shutdown. |
 | **Themes** | Use palettes such as Gruvbox, Tokyo Night, Nord, Catppuccin, and Rosé Pine. Adjust color and backdrop, or try Liquid Glass and tune its rim, refraction, and transparency. |
-| **Virtual desktops** | Use the arrows beside the desktop number or press **Alt + 1–9** to select an existing desktop. Change the modifiers in **Settings → General**. |
+| **Virtual desktops** | Use the arrows beside the desktop number or press **Alt + 1–9** to select a desktop. A shortcut creates any missing desktops up to its number. The right arrow creates the next desktop at the end of the row. Change modifiers in **Settings → General**. |
 | **Portable app** | The dock, launcher, and Settings live in the same executable. Check for new PovarDock builds under **Settings → About**. |
 
 > [!NOTE]

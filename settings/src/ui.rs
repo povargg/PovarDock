@@ -24,7 +24,7 @@ use crate::{
     screens, system, update,
 };
 
-const APP_ICON: &[u8] = include_bytes!("../../assets/povardock.png");
+const APP_ICON: &[u8] = include_bytes!("../../assets/povardock-transparent.png");
 
 /// Config values and the labels the dropdowns show for them.
 const THEMES: [(&str, &str); 3] = [("system", "System"), ("dark", "Dark"), ("light", "Light")];

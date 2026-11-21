@@ -139,7 +139,7 @@ pub struct Frame<'a> {
     pub inline: &'a [usize],
     pub flyout_open: bool,
     pub power_open: bool,
-    pub desktop: (usize, usize),
+    pub desktop: usize,
 }
 
 /// The notification-area flyout's grid.
@@ -942,8 +942,7 @@ fn draw_status(target: &mut Target, formats: &Formats, frame: &Frame) -> Result<
         };
         let right = left + frame.layout.part_width(part, frame.layout_scale);
         let disabled = match part {
-            Part::DesktopPrevious => frame.desktop.0 == 0,
-            Part::DesktopNext => frame.desktop.0 + 1 >= frame.desktop.1,
+            Part::DesktopPrevious => frame.desktop == 0,
             _ => false,
         };
         if !disabled && part != Part::DesktopNumber && *hover_part == Some(part)
@@ -965,7 +964,7 @@ fn draw_status(target: &mut Target, formats: &Formats, frame: &Frame) -> Result<
                 let (format, label) = match part {
                     Part::DesktopPrevious => (&formats.chevron, "\u{E76B}".into()),
                     Part::DesktopNext => (&formats.chevron, "\u{E76C}".into()),
-                    _ => (&formats.time, (frame.desktop.0 + 1).to_string()),
+                    _ => (&formats.time, (frame.desktop + 1).to_string()),
                 };
                 let mut color = p.text;
                 if disabled {

@@ -1,22 +1,24 @@
-//! Windows' virtual desktops: which exist, which one shows, and switching.
-//!
-//! Explorer keeps the desktop list in the registry. Switching goes through
-//! Windows' own shortcut, Ctrl+Win+Left or Right, because the COM interface
-//! for it is undocumented and changes between Windows builds.
+//! Read Explorer's desktop order and switch or create desktops.
 
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::HWND;
-use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_BINARY, RRF_RT_REG_SZ, RegGetValueW};
+use windows::Win32::System::Registry::{
+    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_BINARY, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW,
+};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
-    KEYEVENTF_KEYUP, MOD_NOREPEAT, RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_CONTROL, VK_LCONTROL,
-    VK_LEFT, VK_LWIN, VK_MENU, VK_RIGHT, VK_RWIN, VK_SHIFT,
+    KEYEVENTF_KEYUP, MOD_NOREPEAT, RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_CONTROL, VK_D,
+    VK_LCONTROL, VK_LEFT, VK_LWIN, VK_MENU, VK_RIGHT, VK_RWIN, VK_SHIFT,
 };
 use windows::core::{HSTRING, PCWSTR, w};
 
 pub const HOTKEY_FIRST: usize = 101;
 pub const HOTKEY_COUNT: usize = 9;
+pub const STEP_PREVIOUS: usize = 0;
+pub const STEP_NEXT: usize = 1;
+pub const STEP_NEXT_EXISTING: usize = 2;
 
 const KEY: PCWSTR = w!(r"Software\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops");
 
@@ -55,7 +57,7 @@ pub fn read() -> Desktops {
                         r"Software\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops\Desktops\{}",
                         guid(id)
                     ));
-                    reg_string(PCWSTR(sub.as_ptr()), w!("Name"))
+                    reg_string(HKEY_CURRENT_USER, PCWSTR(sub.as_ptr()), w!("Name"))
                 })
                 .filter(|name| !name.trim().is_empty())
                 .unwrap_or_else(|| format!("Desktop {}", i + 1))
@@ -98,12 +100,74 @@ fn guid(id: &[u8]) -> String {
     )
 }
 
-/// Shows the next desktop to the right, or to the left.
-pub fn switch(right: bool) -> bool {
-    let arrow = if right { VK_RIGHT } else { VK_LEFT };
+/// The patched Windows 11 24H2 and later interface can append all missing
+/// desktops without visiting each one along the way.
+pub fn select_direct(target: usize) -> bool {
+    static SUPPORTED: OnceLock<bool> = OnceLock::new();
+    if !*SUPPORTED.get_or_init(supports_direct_selection) {
+        return false;
+    }
+    let select = || -> winvd::Result<bool> {
+        let target = target as u32;
+        let mut count = winvd::get_desktop_count()?;
+        while count <= target {
+            winvd::create_desktop()?;
+            let actual = winvd::get_desktop_count()?;
+            if actual <= count {
+                return Ok(false);
+            }
+            count = actual;
+        }
+        winvd::switch_desktop(target)?;
+        Ok(true)
+    };
+    match select() {
+        Ok(selected) => selected,
+        Err(error) => {
+            eprintln!("Desktop manager: {error:?}");
+            false
+        }
+    }
+}
+
+fn supports_direct_selection() -> bool {
+    // winvd's Explorer interface requires Windows 11 build 26100.2605.
+    const WINDOWS_VERSION: PCWSTR = w!(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+    let build = reg_string(HKEY_LOCAL_MACHINE, WINDOWS_VERSION, w!("CurrentBuildNumber"))
+        .and_then(|text| text.parse::<u32>().ok())
+        .unwrap_or_default();
+    if build != 26100 {
+        return build > 26100;
+    }
+    let mut revision = 0u32;
+    let mut size = size_of::<u32>() as u32;
+    let read = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            WINDOWS_VERSION,
+            w!("UBR"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some((&raw mut revision).cast()),
+            Some(&mut size),
+        )
+        .is_ok()
+    };
+    read && revision >= 2605
+}
+
+/// Fallback for older Explorer shells. Acknowledgement is read before sending
+/// another key so a delayed switch cannot move beyond the user's target.
+pub fn send_desktop_key(step: &Step) -> bool {
+    let key_to_send = match step {
+        Step::Move(false) => VK_LEFT,
+        Step::Move(true) => VK_RIGHT,
+        Step::Create => VK_D,
+        _ => return false,
+    };
     let key = |vk: VIRTUAL_KEY, up: bool| {
         let mut flags = if up { KEYEVENTF_KEYUP } else { Default::default() };
-        if vk != VK_LCONTROL {
+        if matches!(vk, VK_LWIN | VK_LEFT | VK_RIGHT) {
             // The Windows and arrow keys are extended keys.
             flags |= KEYEVENTF_EXTENDEDKEY;
         }
@@ -121,8 +185,8 @@ pub fn switch(right: bool) -> bool {
     let inputs = [
         key(VK_LCONTROL, false),
         key(VK_LWIN, false),
-        key(arrow, false),
-        key(arrow, true),
+        key(key_to_send, false),
+        key(key_to_send, true),
         key(VK_LWIN, true),
         key(VK_LCONTROL, true),
     ];
@@ -138,50 +202,59 @@ pub fn switch(right: bool) -> bool {
 pub struct Jump {
     target: usize,
     deadline: Instant,
-    pending: Option<(usize, Instant)>,
+    pending: Option<((usize, usize), Instant)>,
+    direct: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Step {
     Wait,
     Move(bool),
+    Create,
     Arrived,
     Cancel,
 }
 
 impl Jump {
-    pub fn new(target: usize, now: Instant) -> Self {
+    pub fn new(target: usize, now: Instant, direct: bool) -> Self {
         Self {
             target,
-            deadline: now + Duration::from_secs(6),
+            deadline: now + Duration::from_secs(if direct { 2 } else { 12 }),
             pending: None,
+            direct,
         }
     }
 
     pub fn retarget(&mut self, target: usize, now: Instant) {
         self.target = target;
-        self.deadline = now + Duration::from_secs(6);
+        self.deadline = now + Duration::from_secs(12);
+        self.direct = false;
     }
 
-    pub fn advance(&mut self, (current, count): (usize, usize), now: Instant, keys_down: bool) -> Step {
-        if self.target >= count || now >= self.deadline {
+    pub fn advance(&mut self, position: (usize, usize), now: Instant, keys_down: bool) -> Step {
+        let (current, count) = position;
+        if now >= self.deadline {
             return Step::Cancel;
         }
         if let Some((from, expires)) = self.pending {
-            if from == current {
+            if from == position {
                 return if now < expires { Step::Wait } else { Step::Cancel };
             }
             self.pending = None;
         }
-        if current == self.target {
+        if current == self.target && self.target < count {
             return Step::Arrived;
         }
         // An Alt/Shift/Win shortcut can still be physically held when WM_HOTKEY arrives.
-        if keys_down {
+        if self.direct || keys_down {
             return Step::Wait;
         }
-        self.pending = Some((current, now + Duration::from_millis(1500)));
-        Step::Move(current < self.target)
+        self.pending = Some((position, now + Duration::from_millis(1500)));
+        if self.target >= count {
+            Step::Create
+        } else {
+            Step::Move(current < self.target)
+        }
     }
 }
 
@@ -271,12 +344,12 @@ fn reg_binary(sub: PCWSTR, value: PCWSTR) -> Vec<u8> {
     }
 }
 
-fn reg_string(sub: PCWSTR, value: PCWSTR) -> Option<String> {
+fn reg_string(root: HKEY, sub: PCWSTR, value: PCWSTR) -> Option<String> {
     let mut buffer = [0u16; 256];
     let mut size = size_of_val(&buffer) as u32;
     unsafe {
         RegGetValueW(
-            HKEY_CURRENT_USER,
+            root,
             sub,
             value,
             RRF_RT_REG_SZ,
@@ -320,7 +393,7 @@ mod tests {
     #[test]
     fn jump_waits_for_released_modifiers_and_real_desktop_changes() {
         let now = Instant::now();
-        let mut jump = Jump::new(2, now);
+        let mut jump = Jump::new(2, now, false);
         assert_eq!(jump.advance((0, 3), now, true), Step::Wait);
         assert_eq!(jump.advance((0, 3), now, false), Step::Move(true));
         assert_eq!(jump.advance((0, 3), now, false), Step::Wait);
@@ -331,13 +404,32 @@ mod tests {
     #[test]
     fn jump_handles_retargeting_missing_desktops_and_refused_switches() {
         let now = Instant::now();
-        let mut jump = Jump::new(2, now);
-        assert_eq!(jump.advance((0, 1), now, false), Step::Cancel);
+        let mut jump = Jump::new(2, now, false);
         assert_eq!(jump.advance((0, 3), now, false), Step::Move(true));
         jump.retarget(0, now);
         assert_eq!(jump.advance((0, 3), now, false), Step::Wait);
         assert_eq!(jump.advance((1, 3), now, false), Step::Move(false));
         assert_eq!(jump.advance((1, 3), now + Duration::from_secs(2), false), Step::Cancel);
+    }
+
+    #[test]
+    fn creates_only_the_missing_desktops_and_waits_for_explorer() {
+        let now = Instant::now();
+        let mut jump = Jump::new(2, now, false);
+        assert_eq!(jump.advance((0, 1), now, true), Step::Wait);
+        assert_eq!(jump.advance((0, 1), now, false), Step::Create);
+        assert_eq!(jump.advance((0, 1), now, false), Step::Wait);
+        assert_eq!(jump.advance((1, 2), now, false), Step::Create);
+        assert_eq!(jump.advance((2, 3), now, false), Step::Arrived);
+    }
+
+    #[test]
+    fn waits_for_a_direct_switch_without_sending_shortcuts() {
+        let now = Instant::now();
+        let mut jump = Jump::new(2, now, true);
+        assert_eq!(jump.advance((0, 1), now, false), Step::Wait);
+        assert_eq!(jump.advance((0, 3), now, false), Step::Wait);
+        assert_eq!(jump.advance((2, 3), now, true), Step::Arrived);
     }
 
     #[test]

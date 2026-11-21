@@ -37,6 +37,7 @@ fn main() {
             (101, "assets/LICENSE-GEMOJI"),
             (102, "assets/LICENSE-CLDR"),
             (103, "settings/assets/icons/LICENSE-LUCIDE"),
+            (104, "assets/LICENSE-WINVD"),
         ] {
             println!("cargo:rerun-if-changed={path}");
             res.append_rc_content(&format!("{id} RCDATA \"{path}\"\n"));

@@ -1,6 +1,6 @@
 [package]
 name = "wisp"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2024"
 description = "A customizable dock and keyboard launcher for Windows"
 license = "MIT"
@@ -27,6 +27,7 @@ toml = "1"
 toml_edit = "0.23"
 tempfile = "3"
 windows-core = "0.62"
+winvd = "=0.0.49"
 windows-collections = "0.3"
 windows-numerics = "0.3"
 

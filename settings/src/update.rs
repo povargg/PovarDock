@@ -14,6 +14,7 @@ use windows::{
         Foundation::{CloseHandle, HANDLE, LPARAM, WAIT_ABANDONED, WAIT_OBJECT_0, WPARAM},
         Networking::WinHttp::*,
         System::Threading::*,
+        UI::Shell::{SHCNE_UPDATEITEM, SHCNF_PATHW, SHChangeNotify},
         UI::WindowsAndMessaging::*,
     },
     core::{PCWSTR, PWSTR, w},
@@ -195,6 +196,9 @@ pub fn cleanup_previous_update() {
     if !previous.exists() {
         return;
     }
+    use std::os::windows::ffi::OsStrExt;
+    let path: Vec<u16> = executable.as_os_str().encode_wide().chain([0]).collect();
+    unsafe { SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, Some(path.as_ptr().cast()), None) };
     std::thread::spawn(move || {
         for _ in 0..20 {
             if let Some(_lock) = UpdateLock::acquire()

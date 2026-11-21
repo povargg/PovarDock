@@ -4,6 +4,12 @@ User-facing changes in each release. Each release on GitHub lists these notes an
 
 ## Unreleased
 
+## 0.10.1 - 2026-11-21
+
+- Made the app icon background transparent.
+- Create missing desktops from the number shortcuts and from the right arrow at the end.
+- Hide Explorer’s desktop-switch popup while PovarDock supplies desktop feedback.
+
 ## 0.10.0 - 2026-11-21
 
 - Renamed to PovarDock and updated the app icon.

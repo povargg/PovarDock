@@ -541,21 +541,26 @@ impl Launcher {
         }
     }
 
-    fn desktop_step(&mut self, right: bool) {
+    fn desktop_step(&mut self, direction: usize) {
         let (index, count) = desktops::coordinates();
-        let target = if right { index + 1 } else { index.saturating_sub(1) };
-        self.go_to_desktop(target.min(count - 1));
+        let target = match direction {
+            desktops::STEP_PREVIOUS => index.saturating_sub(1),
+            desktops::STEP_NEXT => index + 1,
+            desktops::STEP_NEXT_EXISTING => (index + 1).min(count - 1),
+            _ => return,
+        };
+        self.go_to_desktop(target);
     }
 
     fn go_to_desktop(&mut self, target: usize) {
-        if target >= desktops::coordinates().1 {
-            return;
-        }
+        dock::desktop_popup::clip_existing();
         let now = Instant::now();
-        if let Some(jump) = &mut self.desktop_jump {
+        if desktops::coordinates().0 == target || desktops::select_direct(target) {
+            self.desktop_jump = Some(desktops::Jump::new(target, now, true));
+        } else if let Some(jump) = &mut self.desktop_jump {
             jump.retarget(target, now);
         } else {
-            self.desktop_jump = Some(desktops::Jump::new(target, now));
+            self.desktop_jump = Some(desktops::Jump::new(target, now, false));
         }
         unsafe { SetTimer(Some(self.hwnd), DESKTOP_JUMP_TIMER, 35, None) };
         self.advance_desktop_jump();
@@ -563,16 +568,17 @@ impl Launcher {
 
     fn advance_desktop_jump(&mut self) {
         if let Some(jump) = &mut self.desktop_jump {
+            dock::desktop_popup::clip_existing();
             let step = jump.advance(desktops::coordinates(), Instant::now(), desktops::modifiers_down());
             match step {
                 desktops::Step::Wait => return,
-                desktops::Step::Move(right) if desktops::switch(right) => return,
+                desktops::Step::Move(_) | desktops::Step::Create if desktops::send_desktop_key(&step) => return,
                 desktops::Step::Arrived => {
                     if let Some(dock) = &mut self.dock {
                         dock.desktop_arrived();
                     }
                 }
-                desktops::Step::Move(_) | desktops::Step::Cancel => {}
+                desktops::Step::Move(_) | desktops::Step::Create | desktops::Step::Cancel => {}
             }
         }
         self.desktop_jump = None;
@@ -711,6 +717,7 @@ impl Launcher {
         }
         if !self.config.dock {
             self.dock = None;
+            dock::desktop_popup::watch(false);
             self.sync_reserve();
             return;
         }
@@ -722,6 +729,7 @@ impl Launcher {
             } {
                 Ok(dock) => self.dock = Some(dock),
                 Err(e) => {
+                    dock::desktop_popup::watch(false);
                     tray::notify(self.hwnd, "Could not show the dock", &e.message(), true);
                     return;
                 }
@@ -734,6 +742,7 @@ impl Launcher {
             dock.set_tray(self.taskbar.as_ref().is_some_and(TaskbarWorker::is_active));
             if self.visible { dock.hide() } else { dock.show() }
         }
+        dock::desktop_popup::watch(!capture::active());
         self.sync_reserve();
     }
 
@@ -2648,6 +2657,7 @@ impl Launcher {
     /// Each step can wait on Explorer or another thread, so a trace times
     /// them apart.
     fn shutdown(&mut self) {
+        dock::desktop_popup::watch(false);
         {
             let _span = util::perf::Span::new("quit_win_key");
             self.win_key_hook = None;
@@ -2892,7 +2902,7 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
             });
         }
         WM_DESKTOP_STEP => {
-            with_launcher(|l| l.desktop_step(wparam.0 != 0));
+            with_launcher(|l| l.desktop_step(wparam.0));
         }
         WM_TIMER if wparam.0 == DESKTOP_JUMP_TIMER => {
             with_launcher(Launcher::advance_desktop_jump);
@@ -3222,6 +3232,7 @@ unsafe fn wndproc_inner(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) ->
                 tray::add(l.hwnd, l.tray_icon, &l.tooltip());
                 // The new Explorer shows its taskbar again.
                 l.on_taskbar_message(m);
+                dock::desktop_popup::watch(l.dock.is_some() && !capture::active());
             });
         }
         _ => {}

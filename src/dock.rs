@@ -2,6 +2,8 @@
 
 #[path = "dock/artwork.rs"]
 mod artwork;
+#[path = "dock/desktop_popup.rs"]
+pub(crate) mod desktop_popup;
 #[path = "dock/desktops.rs"]
 pub(crate) mod desktops;
 #[path = "dock/jump_lists.rs"]
@@ -1478,7 +1480,7 @@ impl State {
             inline,
             flyout_open: *flyout_open,
             power_open: power_menu.is_some(),
-            desktop: (desktops.current, desktops.names.len()),
+            desktop: desktops.current,
         };
         match rt {
             Some(rt) => renderer.draw_on(rt, frame),
@@ -2819,6 +2821,9 @@ impl State {
             Some(tray::Tip::Desktop(part)) => {
                 let label = match part {
                     logic::Part::DesktopPrevious => "Previous desktop".into(),
+                    logic::Part::DesktopNext if self.desktops.current + 1 == self.desktops.names.len() => {
+                        "Create next desktop".into()
+                    }
                     logic::Part::DesktopNext => "Next desktop".into(),
                     _ => self.desktops.label(),
                 };
@@ -2919,7 +2924,11 @@ impl State {
                 return None;
             }
             logic::Part::DesktopPrevious | logic::Part::DesktopNext => {
-                self.step_desktop(part == logic::Part::DesktopNext);
+                self.step_desktop(if part == logic::Part::DesktopNext {
+                    desktops::STEP_NEXT
+                } else {
+                    desktops::STEP_PREVIOUS
+                });
                 return None;
             }
             logic::Part::DesktopNumber => return None,
@@ -2956,16 +2965,20 @@ impl State {
         let (step, travel) = logic::wheel_desktop(self.desktop_travel, delta);
         self.desktop_travel = travel;
         let Some(right) = step else { return };
-        self.step_desktop(right);
+        self.step_desktop(if right {
+            desktops::STEP_NEXT_EXISTING
+        } else {
+            desktops::STEP_PREVIOUS
+        });
         self.desktop_switched = Some(Instant::now());
     }
 
-    fn step_desktop(&self, right: bool) {
+    fn step_desktop(&self, direction: usize) {
         let _ = unsafe {
             PostMessageW(
                 Some(self.owner),
                 crate::messages::WM_DESKTOP_STEP,
-                WPARAM(usize::from(right)),
+                WPARAM(direction),
                 LPARAM(0),
             )
         };
