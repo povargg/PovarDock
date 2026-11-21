@@ -4,8 +4,7 @@ The `povardock` branch carries PovarDock. Releases pair `povardock-x64.exe` with
 `SHA256SUMS.txt`. See [Build from source](README.md#build-from-source) for the
 current package and tag commands.
 
-PovarDock has its own roadmap and release process. Contributors can find build
-and testing instructions in [CONTRIBUTING.md](CONTRIBUTING.md).
+Build and testing instructions are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Reviewing pull requests
 

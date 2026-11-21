@@ -4,7 +4,7 @@
 
 <h1 align="center">PovarDock</h1>
 
-<p align="center">An independently developed dock and keyboard launcher for Windows 11.</p>
+<p align="center">A customizable dock and keyboard launcher for Windows 11.</p>
 
 <p align="center">
   <a href="https://github.com/povargg/PovarDock/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/povargg/PovarDock?style=flat-square&amp;color=4f87ff"></a>
@@ -17,10 +17,6 @@
   ·
   <a href="https://github.com/povargg/PovarDock/releases">Release notes</a>
 </p>
-
-I build and release PovarDock independently. Its roadmap follows my own ideas
-for navigating virtual desktops, launching apps from the keyboard, and making
-the dock fit the rest of the desktop.
 
 ## What you can do
 
@@ -65,8 +61,8 @@ manifests, update `Cargo.lock`, and use a matching tag such as `v0.9.1`.
 
 ## Origin and license
 
-The starting point for PovarDock was [Wisp](https://github.com/SumirSeth/wisp),
-created by Sumir Seth and its contributors. The original copyright notice and
+PovarDock is based on [Wisp](https://github.com/SumirSeth/wisp) by Sumir Seth and
+its contributors. The original copyright notice and
 [MIT license](LICENSE) are included with the source.
 
 PovarDock also includes emoji data from Gemoji and Unicode CLDR, and icons from

@@ -2,7 +2,7 @@
 name = "wisp"
 version = "0.10.3"
 edition = "2024"
-description = "PovarDock, an independently developed dock and keyboard launcher for Windows 11"
+description = "A customizable dock and keyboard launcher for Windows 11"
 license = "MIT"
 authors = ["Sumir Seth", "povargg"]
 repository = "https://github.com/povargg/PovarDock"
