@@ -4,9 +4,8 @@ The `povardock` branch carries PovarDock. Releases pair `povardock-x64.exe` with
 `SHA256SUMS.txt`. See [Build from source](README.md#build-from-source) for the
 current package and tag commands.
 
-## Upstream Wisp maintenance notes
-
-How Wisp's pull requests, issues and releases are handled. Contributors follow [CONTRIBUTING.md](CONTRIBUTING.md); this file covers what happens after.
+PovarDock has its own roadmap and release process. Contributors can find build
+and testing instructions in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Reviewing pull requests
 
@@ -27,7 +26,7 @@ How Wisp's pull requests, issues and releases are handled. Contributors follow [
 
 - Every bug needs steps to reproduce it and a Windows version. Label it `needs-repro` until it has them.
 - Close every issue with a reason: fixed by a pull request, won't fix, or duplicate.
-- Long-term ideas outside Wisp's scope stay open with the `enhancement` label until they are planned or declined.
+- Use the `enhancement` label for proposals to extend PovarDock.
 
 ### Labels
 
@@ -47,47 +46,25 @@ Release notes group pull requests by these labels ([`.github/release.yml`](.gith
 
 ## Releases
 
-Wisp uses [semantic versioning](https://semver.org). While the version is 0.x:
+PovarDock follows [semantic versioning](https://semver.org) while the version is 0.x.
 
 - **Patch** (0.5.1) for fixes only.
 - **Minor** (0.6.0) for new features or changed behavior.
-- **1.0** once the config and behavior are stable and Windows 10 is verified.
 
 To release:
 
 1. Open a release pull request that renames the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md) to the version and date, adds a new empty `Unreleased` section, and bumps the version in `Cargo.toml` and `settings/Cargo.toml`. Label it `release`.
 2. Merge it once CI passes.
-3. Tag the merged commit on `main` and push the tag:
+3. Tag the tested commit on `povardock` and push the tag. Use the version you are releasing in place of `vX.Y.Z`.
 
    ```sh
-   git tag -a v0.6.0 -m "Wisp v0.6.0"
-   git push origin v0.6.0
+   git tag -a vX.Y.Z -m "PovarDock vX.Y.Z"
+   git push origin vX.Y.Z
    ```
 
-4. The release workflow tests, builds and publishes the release. Its notes are the version's changelog section, followed by the pull requests. The settings app's updater then offers it to users.
-5. Download the workflow's `package-manifests-vX.Y.Z` artifact. It contains winget's three schema 1.10 manifests in `winget/X.Y.Z/` and Scoop's filled `scoop/wisp.json`. These are workflow artifacts, not release assets; the workflow does not submit them anywhere.
-6. For the first winget submission, run `winget validate --manifest <winget-version-directory>` and submit those files by hand to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) under `manifests/s/SumirSeth/Wisp/X.Y.Z/`. Test installation and upgrade on an unlocked test desktop before submitting. Later releases can automate submissions once the package is accepted; that automation is not configured yet.
-7. For Scoop, first create a bucket or arrange a submission to an existing bucket, then submit the generated `scoop/wisp.json` by hand. It includes GitHub `checkver` and `autoupdate` rules using `SHA256SUMS.txt`; enable the bucket's update automation for later releases. Do not advertise `scoop install wisp` until a bucket exists.
-
-To regenerate the manifests locally with PowerShell 7:
-
-```powershell
-pwsh -File packaging/winget/generate.ps1 -Tag v0.6.0 -ZipPath ./wisp-v0.6.0-x86_64-windows.zip -OutputDirectory ./manifests
-winget validate --manifest ./manifests/winget/0.6.0
-```
-
-The generator hashes the zip and detects whether its files are at the root or in the old versioned folder. The checked-in Scoop manifest describes the published 0.6.0 zip; its autoupdate rule changes `extract_dir` to `.` for future root-layout zips. Generate each release's manifest from its actual archive. The new root layout keeps winget's executable paths stable across upgrades. Both autostart entry points use the current executable's folder; Scoop installs use the `apps/wisp/current` junction so upgrades can remove old versions. Winget's package folder is already stable and needs no path rewrite.
-
-Use the next release containing package-manager detection for the first public submission. The 0.6.0 manifests are useful for validation, but that binary still offers in-app updates and its versioned archive folder would leave stale paths on upgrade to the root layout.
+4. The [release workflow](.github/workflows/release.yml) runs the tests, builds the portable executable and publishes the release with its checksum manifest. Settings uses the latest stable release to offer updates.
 
 Never move or delete a published tag. If a release is broken, ship a patch release.
-
-## Repository settings
-
-Rulesets enforce these rules, and the maintainer may bypass them in an emergency:
-
-- **`main`:** changes only through pull requests, CI must pass, no force pushes, no deletion.
-- **`v*` tags:** no updates and no deletion.
 
 ## Housekeeping
 

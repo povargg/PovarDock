@@ -1,20 +1,12 @@
-# Contributing to Wisp
+# Contributing to PovarDock
 
 Thanks for helping. Bug reports, fixes and features are all welcome.
 
-Every change on `main` should be easy to trace: what changed, why, who owns it, how it was checked and which release shipped it. The rules below serve that. They apply to everyone, the maintainer included.
-
-## Building, not just coding
-
-> Building something has never been about writing code. When I say I built it, it means I have put effort, thought and intention behind every single thing, and got Claude to write the code because it writes better code than almost all humans do.
->
-> — Sumir Seth, maintainer
-
-Wisp is built in that spirit. A good change starts with a reason: a bug you hit, something that felt wrong, an idea you thought through. The code serves that intention.
+Changes to the `povardock` branch should be easy to trace. A pull request explains the problem, what changed, and how the change was checked.
 
 ## AI agents
 
-AI agents are welcome. Use them as code writers, tinkerers and partners for ideas. Much of Wisp is written this way.
+AI agents are welcome. Use them as code writers, tinkerers and partners for ideas.
 
 **You own what you submit.** The person who opens a pull request or makes a commit owns that change, whoever or whatever typed it. Be ready to explain it, defend it and fix it.
 
@@ -27,13 +19,13 @@ Changes made end to end by an agent with no verifiable check, no real testing an
 ## Before you start
 
 - **Bugs:** search the issues first. If it's new, open a bug report with your Windows version and the steps to reproduce it.
-- **Features:** open a feature request first. Wisp aims to be a slim, fast dock and launcher, not a full taskbar replacement, so agree on the idea before you write code.
+- **Features:** open a feature request first so we can discuss how the idea fits PovarDock’s roadmap.
 
 ## Branches
 
-- Fork the repository and branch from `main`. Everyone works on branches; nobody pushes to `main`.
+- Start your contribution branch from `povardock`.
 - Name the branch after the change: `fix/…`, `feat/…`, `docs/…` or `perf/…`.
-- Keep it short-lived and rebased on `main`. Rebase rather than merging `main` into it.
+- Keep it short-lived and rebased on `povardock`.
 
 ## Commits
 
@@ -44,7 +36,7 @@ Changes made end to end by an agent with no verifiable check, no real testing an
 
 ## Testing your change
 
-1. Install your build with `scripts\install-nightly.ps1`. It installs **Wisp Nightly** beside your normal Wisp, with its own folder, config and shortcut (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd>). Any build of your branch works, as long as you test the code you submit.
+1. Install your build with `scripts\install-nightly.ps1`. It installs **PovarDock Nightly** beside the stable app, with its own folder, config and shortcut (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd>). Any build of your branch works, as long as you test the code you submit.
 2. Try the change on your desktop, including the edge cases above.
 3. If it affects anything the user sees or waits on, [measure it](#performance).
 4. Run the checks CI runs:
@@ -58,7 +50,7 @@ Changes made end to end by an agent with no verifiable check, no real testing an
 
 ## Performance
 
-Speed is Wisp's main feature, so a change must not make it slower. Measure every change to the dock, the launcher, search, drawing or startup **before and after**, on the same machine.
+Measure changes to the dock, the launcher, search, drawing or startup **before and after** on the same machine.
 
 1. **Frame timings.** Build the demo with tracing, then capture on `main` and on your branch:
 

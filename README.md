@@ -4,7 +4,7 @@
 
 <h1 align="center">PovarDock</h1>
 
-<p align="center">A customizable dock and keyboard launcher for Windows 11.</p>
+<p align="center">An independently developed dock and keyboard launcher for Windows 11.</p>
 
 <p align="center">
   <a href="https://github.com/povargg/PovarDock/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/povargg/PovarDock?style=flat-square&amp;color=4f87ff"></a>
@@ -18,9 +18,9 @@
   <a href="https://github.com/povargg/PovarDock/releases">Release notes</a>
 </p>
 
-PovarDock is a fork of Wisp by Sumir Seth. I adapted the dock for my own Windows
-setup and am sharing it for anyone who wanted more control over the dock, its
-appearance, and the way it fits into everyday work. [Original Wisp project](https://github.com/SumirSeth/wisp).
+I build and release PovarDock independently. Its roadmap follows my own ideas
+for navigating virtual desktops, launching apps from the keyboard, and making
+the dock fit the rest of the desktop.
 
 ## What you can do
 
@@ -63,11 +63,11 @@ The package step creates `dist\povardock-x64.exe` and `dist\SHA256SUMS.txt`.
 The release workflow runs on stable version tags. Bump the version in both Cargo
 manifests, update `Cargo.lock`, and use a matching tag such as `v0.9.1`.
 
-## Credits and license
+## Origin and license
 
-Sumir Seth and the Wisp contributors built the original dock and launcher. The
-original MIT license and copyright notice are included with the source.
-[MIT license](LICENSE) · [Wisp contributors](https://github.com/SumirSeth/wisp/graphs/contributors).
+The starting point for PovarDock was [Wisp](https://github.com/SumirSeth/wisp),
+created by Sumir Seth and its contributors. The original copyright notice and
+[MIT license](LICENSE) are included with the source.
 
 PovarDock also includes emoji data from Gemoji and Unicode CLDR, and icons from
 Lucide. [Gemoji notice](assets/LICENSE-GEMOJI) · [Unicode notice](assets/LICENSE-CLDR) · [Lucide notice](settings/assets/icons/LICENSE-LUCIDE).

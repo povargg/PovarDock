@@ -31,6 +31,9 @@ User-facing changes in each release. Each release on GitHub lists these notes an
 - Liquid Glass reaches 98% opacity at the minimum transparency setting.
 - The portable executable checks this repository for updates and validates each download with SHA-256.
 
+The entries for 0.8.1 and earlier document the original development that preceded
+PovarDock. See [Origin and license](README.md#origin-and-license).
+
 ## 0.8.1 - 2026-11-17
 
 ### Fixes
@@ -83,13 +86,13 @@ User-facing changes in each release. Each release on GitHub lists these notes an
 
 - **Arrange the dock your way.** Drag the launcher, apps, notification icons, status and clock to any place in the dock. The order is saved. (#65)
 
-  <img src="https://github.com/SumirSeth/wisp/raw/v0.7.0/assets/0.7.0/dock-rearranged.png" width="513" alt="The same dock in three orders, with pinned File Explorer and Helium before running Paint and Notepad">
+  <img src="assets/0.7.0/dock-rearranged.png" width="513" alt="The same dock in three orders, with pinned File Explorer and Helium before running Paint and Notepad">
 
 - **Choose your status icons.** Sound, battery, Wi-Fi and Bluetooth sit together in one 2x2 group. Hover for details, scroll over sound to change the volume, click to open Now. Each can stay in the group, get its own icon, or be hidden: in Settings, under Status. Own sound and battery icons show their percentage, and Wi-Fi shows its signal. (#64, #66, #67)
 
-  <img src="https://github.com/SumirSeth/wisp/raw/v0.7.0/assets/0.7.0/status-options.png" width="317" alt="The status group as a 2x2, as 2x1 with sound and battery on their own, as four own icons, and with battery hidden">
+  <img src="assets/0.7.0/status-options.png" width="317" alt="The status group as a 2x2, as 2x1 with sound and battery on their own, as four own icons, and with battery hidden">
 
-  <img src="https://github.com/SumirSeth/wisp/raw/v0.7.0/assets/0.7.0/settings-status.png" width="588" alt="The Status settings: a switch to group status icons and a choice for each icon">
+  <img src="assets/0.7.0/settings-status.png" width="588" alt="The Status settings: a switch to group status icons and a choice for each icon">
 
 - **Pin apps to the dock.** Right-click an app and choose Pin to dock. Pinned apps stay in the dock, before running apps, and start with a click. (#54, by @SorbetMango, fixes #31)
 - **Rearrange apps by dragging.** Drop an app among the pinned apps to pin it there, or among the running apps to unpin it. (#65, by @SorbetMango, fixes #32)
@@ -150,7 +153,3 @@ User-facing changes in each release. Each release on GitHub lists these notes an
 ### Thanks
 
 @JulienMaille contributed their first pull requests to Wisp in this release: #3, #5, #13 and #14.
-
-## Earlier releases
-
-See the [releases page](https://github.com/SumirSeth/wisp/releases) for 0.4.2 and earlier.

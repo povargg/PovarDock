@@ -13,4 +13,4 @@ body:
     id: idea
     attributes:
       label: Your idea
-      description: How Wisp could help. Wisp aims to be a slim, fast dock and launcher, not a full taskbar replacement.
+      description: Describe how PovarDock could support this part of your Windows workflow.
