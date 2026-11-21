@@ -7,6 +7,10 @@
 <p align="center">A customizable dock and keyboard launcher for Windows 11.</p>
 
 <p align="center">
+  <strong>English</strong> · <a href="README.ru.md">Русский</a> · <a href="README.de.md">Deutsch</a>
+</p>
+
+<p align="center">
   <a href="https://github.com/povargg/PovarDock/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/povargg/PovarDock?style=flat-square&amp;color=4f87ff"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-4f87ff?style=flat-square"></a>
   <img alt="Windows 11 x64" src="https://img.shields.io/badge/windows-11%20x64-24334d?style=flat-square">
@@ -19,6 +23,10 @@
 </p>
 
 ## What you can do
+
+Use the keyboard to find apps, files, and emoji or switch between virtual
+desktops. Pin the apps you use most to the dock and customize its look with a
+color palette or Liquid Glass.
 
 | Feature | What it gives you |
 | --- | --- |
